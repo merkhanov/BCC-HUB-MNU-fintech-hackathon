@@ -1,0 +1,25 @@
+{
+  "name": "req-checker",
+  "version": "0.1.0",
+  "description": "CLI-агент статической проверки требований по ISO/IEC/IEEE 29148:2018 и IEEE 830-1998",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "req-checker": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^3.6.1",
+    "mammoth": "^1.13.0",
+    "unpdf": "^2.2.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.5",
+    "typescript": "^7.0.2"
+  }
+}
