@@ -18,7 +18,7 @@ class FakeLLM extends BaseLLM {
   constructor(models: string[], opts: LLMOptions) {
     super("fake", models, { backoffMs: 0, ...opts });
   }
-  protected async complete(model: string) {
+  protected async complete(model: string, _prompt?: Prompt, _schema?: z.ZodType, _signal?: AbortSignal) {
     this.requests.push(model);
     if (model === "busy") throw Object.assign(new Error('{"error":{"code":503,"status":"UNAVAILABLE"}}'), { status: 503 });
     if (this.broken) {
@@ -51,6 +51,33 @@ test("readCache: false asks the model again but still saves the answer", async (
   const replay = new FakeLLM(["spare"], { cacheDir });
   await replay.json("set", prompt, Schema);
   expect(replay.cached).toBe(1);
+});
+
+test("a request that never answers is cut off by the deadline and the next model is used", async () => {
+  class Hanging extends FakeLLM {
+    protected override async complete(model: string, _prompt?: Prompt, _schema?: z.ZodType, signal?: AbortSignal) {
+      if (model !== "hang") return super.complete(model);
+      this.requests.push(model);
+      return new Promise<never>((_, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+    }
+  }
+  const llm = new Hanging(["hang", "spare"], { timeoutMs: 20 });
+  expect(await llm.json("check-1", prompt, Schema)).toEqual({ ok: true });
+  expect(llm.requests).toEqual(["hang", "hang", "hang", "hang", "hang", "spare", "spare"]);
+});
+
+test("a daily quota error switches model at once instead of retrying", async () => {
+  class Daily extends FakeLLM {
+    protected override async complete(model: string) {
+      if (model !== "daily") return super.complete(model);
+      this.requests.push(model);
+      const body = { error: { code: 429, status: "RESOURCE_EXHAUSTED", details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] } };
+      throw Object.assign(new Error(JSON.stringify(body)), { status: 429 });
+    }
+  }
+  const llm = new Daily(["daily", "spare"], {});
+  expect(await llm.json("set", prompt, Schema)).toEqual({ ok: true });
+  expect(llm.requests).toEqual(["daily", "spare", "spare"]);
 });
 
 test("non-transient errors are not retried", async () => {

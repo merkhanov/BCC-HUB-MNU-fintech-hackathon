@@ -28,6 +28,8 @@ export interface LLMOptions {
   log?: (msg: string) => void;
   /** Base of the exponential backoff; tests set it to 0. */
   backoffMs?: number;
+  /** Hard limit per request; tests set it low. */
+  timeoutMs?: number;
 }
 
 export class ConfigError extends Error {}
@@ -85,6 +87,16 @@ function parse<T>(raw: string, schema: z.ZodType<T>): T {
 
 class RetryableError extends Error {}
 
+class RequestTimeout extends Error {
+  override name = "TimeoutError";
+}
+
+/** A per-day quota (429 with a PerDay quota id) does not clear within minutes: switch model instead of retrying. */
+export function isDailyQuota(e: unknown): boolean {
+  const err = e as { status?: number; message?: string };
+  return err?.status === 429 && /PerDay/i.test(err?.message ?? "");
+}
+
 /** Overload, rate limit, server error, timeout or dropped connection: worth retrying or switching model. */
 export function isTransient(e: unknown): boolean {
   const err = e as { status?: number; name?: string; message?: string };
@@ -126,7 +138,28 @@ export abstract class BaseLLM implements LLM {
     return this.models[0]!;
   }
 
-  protected abstract complete(model: string, prompt: Prompt, schema: z.ZodType): Promise<Completion>;
+  protected abstract complete(model: string, prompt: Prompt, schema: z.ZodType, signal: AbortSignal): Promise<Completion>;
+
+  /**
+   * One request with a hard deadline. The SDK timeout alone once let a response hang for 55 minutes,
+   * so the request is also aborted and raced against a timer here.
+   */
+  private async completeWithDeadline(model: string, prompt: Prompt, schema: z.ZodType): Promise<Completion> {
+    const ms = this.opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
+    const ctrl = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        ctrl.abort();
+        reject(new RequestTimeout(`нет ответа за ${Math.round(ms / 1000)} с`));
+      }, ms);
+    });
+    try {
+      return await Promise.race([this.complete(model, prompt, schema, ctrl.signal), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   async json<T>(step: string, prompt: Prompt, schema: z.ZodType<T>): Promise<T> {
     const log = this.opts.log ?? (() => {});
@@ -176,11 +209,11 @@ export abstract class BaseLLM implements LLM {
         const user = feedback
           ? `${prompt.user}\n\nПредыдущий ответ не прошёл проверку схемы: ${feedback}\nВерни корректный JSON.`
           : prompt.user;
-        const res = await this.complete(model, { system: prompt.system, user }, schema);
+        const res = await this.completeWithDeadline(model, { system: prompt.system, user }, schema);
         return { value: parse(res.text, schema), reportedModel: res.reportedModel };
       } catch (e) {
         const badAnswer = e instanceof RetryableError || e instanceof z.ZodError || e instanceof SyntaxError;
-        if ((!badAnswer && !isTransient(e)) || attempt >= attempts) throw e;
+        if ((!badAnswer && !isTransient(e)) || isDailyQuota(e) || attempt >= attempts) throw e;
         const msg = e instanceof z.ZodError ? z.prettifyError(e) : errorText(e);
         if (badAnswer) feedback = msg.slice(0, 1000);
         const delay = Math.min(60_000, 2 ** attempt * (this.opts.backoffMs ?? 2_500));
@@ -220,7 +253,7 @@ class GeminiLLM extends BaseLLM {
     super("Google Gemini API", models, opts);
   }
 
-  protected async complete(model: string, prompt: Prompt, schema: z.ZodType): Promise<Completion> {
+  protected async complete(model: string, prompt: Prompt, schema: z.ZodType, signal: AbortSignal): Promise<Completion> {
     const { GoogleGenAI } = await import("@google/genai");
     // The SDK's own retries would multiply ours, so they are off.
     this.client ??= new GoogleGenAI({
@@ -231,6 +264,7 @@ class GeminiLLM extends BaseLLM {
       model,
       contents: prompt.user,
       config: {
+        abortSignal: signal,
         systemInstruction: prompt.system,
         temperature: TEMPERATURE,
         responseMimeType: "application/json",
@@ -253,10 +287,10 @@ class OpenAICompatibleLLM extends BaseLLM {
     super(`OpenAI-совместимый API (${new URL(baseUrl).host})`, models, opts);
   }
 
-  protected async complete(model: string, prompt: Prompt, schema: z.ZodType): Promise<Completion> {
+  protected async complete(model: string, prompt: Prompt, schema: z.ZodType, signal: AbortSignal): Promise<Completion> {
     const res = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
       body: JSON.stringify({
         model,

@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import pkg from "../package.json";
-import { ConfigError, createLLM, errorText, isTransient } from "./llm.ts";
+import { ConfigError, createLLM, errorText, isDailyQuota, isTransient } from "./llm.ts";
 import { InputError, loadDocument, SUPPORTED } from "./load.ts";
 import { runChecks } from "./pipeline.ts";
 import { renderReport } from "./report.ts";
@@ -89,7 +89,12 @@ main().then(
       process.exit(2);
     }
     console.error(`Сбой прогона: ${errorText(e)}`);
-    if (isTransient(e)) console.error("Модель перегружена. Готовые шаги сохранены в .cache/llm, повторный запуск продолжит с места сбоя.");
+    if (isDailyQuota(e))
+      console.error(
+        "Исчерпана дневная квота модели. Добавьте в GEMINI_MODEL другую модель, возьмите ключ из другого проекта Google Cloud или подождите до сброса квоты. Готовые шаги сохранены в .cache/llm, повторный запуск продолжит с места сбоя.",
+      );
+    else if (isTransient(e))
+      console.error("Модель перегружена. Готовые шаги сохранены в .cache/llm, повторный запуск продолжит с места сбоя.");
     process.exit(1);
   },
 );
