@@ -1,7 +1,7 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
 import { errorText, type LLM } from "./llm.ts";
-import { type CodeFinding, codeChecks, RULE_INFO, relatedPairs } from "./rules.ts";
+import { acceptanceRows, type CodeFinding, codeChecks, RULE_INFO, relatedPairs } from "./rules.ts";
 import type { Location, SourceDoc } from "./load.ts";
 import {
   type Addressee,
@@ -379,13 +379,29 @@ async function checkPairs(
   key: (r: Requirement) => string,
   answers: Answer[],
 ): Promise<Omit<SetFinding, "id">[]> {
-  const byKey = new Map(requirements.map((r) => [key(r), r]));
-  const reported = (a: Requirement, b: Requirement) => setFindings.some((f) => f.reqIds.includes(a.id) && f.reqIds.includes(b.id));
-  const pairs = relatedPairs(requirements.map((r) => ({ id: key(r), quote: r.quote, type: r.type })))
+  // Acceptance rows the extraction left out are read from the table, so a worked example still meets its rule.
+  const extra: Requirement[] = acceptanceRows(doc.text)
+    .filter((row) => !requirements.some((r) => r.location && r.location.line <= row.line && row.line <= r.location.endLine))
+    .map((row, i) => ({
+      id: `КП-${i + 1}`,
+      docId: null,
+      section: "Критерии приёмки",
+      type: "acceptance",
+      summary: row.quote,
+      quote: row.quote,
+      location: grounder.find(row.quote)?.location ?? null,
+      checked: true,
+    }));
+  const items = [...requirements, ...extra];
+  const idOf = (r: Requirement) => (extra.includes(r) ? r.id : key(r));
+  const byKey = new Map(items.map((r) => [idOf(r), r]));
+  const reported = (a: Requirement, b: Requirement) =>
+    setFindings.some((f) => f.criterion === "consistent" && f.reqIds.includes(a.id) && f.reqIds.includes(b.id));
+  const pairs = relatedPairs(items.map((r) => ({ id: idOf(r), quote: r.quote, type: r.type })))
     .map(([a, b]) => [byKey.get(a)!, byKey.get(b)!] as const)
     .filter(([a, b]) => !reported(a, b));
   if (pairs.length === 0) return [];
-  const brief = (r: Requirement) => ({ id: key(r), doc_id: r.docId, section: r.section, quote: r.quote });
+  const brief = (r: Requirement) => ({ id: idOf(r), doc_id: r.docId, section: r.section, quote: r.quote });
   let out;
   try {
     out = await llm.json("pairs", pairsPrompt(doc.text, pairs.map(([a, b]) => ({ a: brief(a), b: brief(b) })), answers), PairsSchema, {
@@ -408,7 +424,7 @@ async function checkPairs(
     found.push({
       criterion: "consistent",
       severity: p.severity,
-      reqIds: [a.id, b.id],
+      reqIds: [a, b].filter((r) => !extra.includes(r)).map((r) => r.id),
       places,
       problem: `${p.problem} Пример: ${p.scenario}`,
       fix: p.fix,

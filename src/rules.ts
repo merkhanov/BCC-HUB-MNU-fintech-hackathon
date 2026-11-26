@@ -313,6 +313,20 @@ export function stems(text: string): Set<string> {
 const RULE_DEF = /^\s*(?:[*-]\s*)?\**\s*([A-ZА-ЯЁ]{1,3}-\d+)\.?\**\.?\s+(.+)$/u;
 const ACCEPTANCE_HEADING = /^#{1,6}\s.*(критери\p{L}*\s+при[её]м\p{L}*|acceptance criteria)/iu;
 
+/** Rows of the acceptance criteria table, without its header, as text a quote search finds. */
+function acceptanceRowsOf(lines: Line[]): { quote: string; line: number }[] {
+  const start = lines.findIndex((l) => ACCEPTANCE_HEADING.test(l.text));
+  if (start < 0) return [];
+  const rows: { quote: string; line: number }[] = [];
+  for (let i = start + 1; i < lines.length && !/^#{1,6}\s/.test(lines[i]!.text); i++) {
+    const t = lines[i]!.text.trim();
+    if (t.startsWith("|") && !/^\|?\s*:?-{2,}/.test(t)) rows.push({ quote: cells(t).join(" "), line: i + 1 });
+  }
+  return rows.slice(1);
+}
+
+export const acceptanceRows = (text: string) => acceptanceRowsOf(text.split(/\r?\n/).map((t, i) => ({ no: i + 1, text: t })));
+
 /**
  * Numbered rules (Ф-1, FR-2…) that no acceptance criterion checks. A criterion covers a rule when it shares a
  * term only that rule uses among all rules, so a criterion about the threshold alone does not cover every rule
@@ -323,14 +337,8 @@ function acceptanceCoverage(lines: Line[]): CodeFinding[] {
     const m = RULE_DEF.exec(l.text);
     return m ? [{ id: m[1]!, text: m[2]!.replace(/[*`]/g, ""), line: l }] : [];
   });
-  const start = lines.findIndex((l) => ACCEPTANCE_HEADING.test(l.text));
-  if (rules.length < 2 || start < 0) return [];
-  const rows: string[] = [];
-  for (let i = start + 1; i < lines.length && !/^#{1,6}\s/.test(lines[i]!.text); i++) {
-    const t = lines[i]!.text.trim();
-    if (t.startsWith("|") && !/^\|?\s*:?-{2,}/.test(t)) rows.push(cells(t).join(" "));
-  }
-  const body = rows.slice(1); // the first row is the header
+  if (rules.length < 2) return [];
+  const body = acceptanceRowsOf(lines).map((r) => r.quote);
   if (body.length === 0) return [];
   const ruleStems = rules.map((r) => stems(r.text));
   const df = new Map<string, number>();
