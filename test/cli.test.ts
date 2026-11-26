@@ -111,6 +111,22 @@ test("if the questions step fails, the run still ends with the critical findings
   expect(report).toContain("За какое время от события напоминание должно дойти до клиента?");
 });
 
+test("critical findings that no model question cites get a question from code", async () => {
+  const dir = join(tmp, "one-question");
+  await cp("test/fixtures/llm", dir, { recursive: true });
+  const one = (await Bun.file(join(dir, "questions.json")).json()) as { questions: unknown[] };
+  await Bun.write(join(dir, "questions.json"), JSON.stringify({ questions: one.questions.slice(0, 1) }));
+  const out = join(tmp, "one-question.report.md");
+  expect(run(["test/fixtures/sample.md", out], { LLM_PROVIDER: "fixture", FIXTURE_DIR: dir }).exitCode).toBe(0);
+  const json = await Bun.file(out.replace(/\.md$/, ".json")).json();
+  const critical = [...json.findings, ...json.setFindings].filter((f: { critical: boolean }) => f.critical).length;
+  expect(json.questions[0].by).toBe("model");
+  expect(json.questions.slice(1).every((q: { by: string }) => q.by === "code")).toBe(true);
+  const cited = new Set(json.questions.flatMap((q: { sources: string[] }) => q.sources));
+  expect(cited.size).toBeGreaterThanOrEqual(critical);
+  expect(await Bun.file(out).text()).toContain("добавил код");
+});
+
 test("PDF input is read and quotes are located by page", async () => {
   const out = join(tmp, "sample-pdf.report.md");
   const res = run(["test/fixtures/sample.pdf", out], { LLM_PROVIDER: "fixture", FIXTURE_DIR: "test/fixtures/llm" });

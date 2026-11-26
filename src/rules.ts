@@ -1,5 +1,6 @@
 import type { SetCriterion } from "./criteria.ts";
 import type { Severity } from "./pipeline.ts";
+import type { Addressee } from "./prompts.ts";
 
 /**
  * Checks that code runs over the document text without calling the model. Each rule is a general pattern
@@ -18,6 +19,21 @@ export interface CodeFinding {
   /** What a model finding must mention to count as the same defect, so code adds only what the model missed. */
   topic: RegExp;
 }
+
+/**
+ * Who answers a rule's question, and the question when several findings of one rule are asked together
+ * (for example all empty places at once).
+ */
+export const RULE_INFO: Record<string, { addressee: Addressee; groupQuestion?: string }> = {
+  "money-units": { addressee: "architect" },
+  "field-types": { addressee: "architect", groupQuestion: "Какие типы у полей, описанных в разных таблицах по-разному, и нужно ли их преобразовывать?" },
+  "mutating-get": { addressee: "architect" },
+  "json-without-body": { addressee: "architect" },
+  "status-section": { addressee: "architect", groupQuestion: "Какие коды ответа получает клиент в разделах, где заголовок и текст называют разные коды?" },
+  "error-in-success": { addressee: "architect" },
+  "empty-values": { addressee: "analyst", groupQuestion: "Какие значения должны стоять в незаполненных местах документа, или какие из них не нужны?" },
+  "acceptance-coverage": { addressee: "qa" },
+};
 
 interface Line {
   no: number;
@@ -263,11 +279,94 @@ function emptyValues(lines: Line[]): CodeFinding[] {
     problem: `В документе осталось незаполненное место: «${x.label}».`,
     fix: "Заполните значение или укажите, что оно не требуется и почему.",
     question: `Что должно стоять в месте «${x.label}», или это значение не нужно?`,
-    topic: /не заполн|не указ|отсутств|пуст|пропущ|не определ/iu,
+    topic: emptyTopic(x.label),
   }));
+}
+
+const EMPTY_WORDS = "не заполн|не указ|отсутств|пуст|пропущ|не определ|прочерк";
+const EMPTY_STEMS = new Set(["запол", "указа", "отсут", "пусто", "пропу", "опред", "проче"]);
+
+/**
+ * A model finding is the same empty-value defect only if it says the value is missing and names the field:
+ * «Prod URL не указан» matches «Prod: —», «не указан порядок согласования» on the same line does not.
+ */
+function emptyTopic(label: string): RegExp {
+  const words = [...stems(label)].filter((w) => !EMPTY_STEMS.has(w)).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (words.length === 0) return new RegExp(EMPTY_WORDS, "iu");
+  return new RegExp(`^(?=[\\s\\S]*(${EMPTY_WORDS}))(?=[\\s\\S]*(${words.join("|")}))`, "iu");
+}
+
+/** Rough Russian stem: enough to match «порога» with «порогу» and «покупка» with «покупки». */
+export function stems(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const w of text.toLowerCase().match(/[\p{L}\d]{4,}/gu) ?? []) {
+    if (/^\d+$/.test(w)) continue;
+    out.add(w.length > 5 ? w.slice(0, 5) : w.slice(0, Math.max(3, w.length - 1)));
+  }
+  return out;
+}
+
+const RULE_DEF = /^\s*(?:[*-]\s*)?\**\s*([A-ZА-ЯЁ]{1,3}-\d+)\.?\**\.?\s+(.+)$/u;
+const ACCEPTANCE_HEADING = /^#{1,6}\s.*(критери\p{L}*\s+при[её]м\p{L}*|acceptance criteria)/iu;
+
+/**
+ * Numbered rules (Ф-1, FR-2…) that no acceptance criterion checks. A criterion covers a rule when it shares a
+ * term only that rule uses among all rules, so a criterion about the threshold alone does not cover every rule
+ * that mentions the threshold.
+ */
+function acceptanceCoverage(lines: Line[]): CodeFinding[] {
+  const rules = lines.flatMap((l) => {
+    const m = RULE_DEF.exec(l.text);
+    return m ? [{ id: m[1]!, text: m[2]!.replace(/[*`]/g, ""), line: l }] : [];
+  });
+  const start = lines.findIndex((l) => ACCEPTANCE_HEADING.test(l.text));
+  if (rules.length < 2 || start < 0) return [];
+  const rows: string[] = [];
+  for (let i = start + 1; i < lines.length && !/^#{1,6}\s/.test(lines[i]!.text); i++) {
+    const t = lines[i]!.text.trim();
+    if (t.startsWith("|") && !/^\|?\s*:?-{2,}/.test(t)) rows.push(cells(t).join(" "));
+  }
+  const body = rows.slice(1); // the first row is the header
+  if (body.length === 0) return [];
+  const ruleStems = rules.map((r) => stems(r.text));
+  const df = new Map<string, number>();
+  for (const st of ruleStems) for (const w of st) df.set(w, (df.get(w) ?? 0) + 1);
+  const uncovered = rules.filter((r, i) => {
+    if (body.some((row) => row.includes(r.id))) return false;
+    const own = [...ruleStems[i]!].filter((w) => df.get(w) === 1);
+    return !body.some((row) => {
+      const rowStems = stems(row);
+      return own.some((w) => rowStems.has(w));
+    });
+  });
+  if (uncovered.length === 0) return [];
+  const ids = uncovered.map((r) => r.id).join(", ");
+  return [
+    {
+      rule: "acceptance-coverage",
+      criterion: "validatable",
+      severity: "medium",
+      quotes: uncovered.slice(0, 4).map((r) => `${r.id}. ${clean(r.text).split(/(?<=[.!?])\s+/)[0]}`),
+      problem:
+        uncovered.length === 1
+          ? `Правило ${ids} не покрыто критериями приёмки: ни один пример в таблице критериев не проверяет условие, которое есть только в этом правиле.`
+          : `Правила ${ids} не покрыты критериями приёмки: ни один пример в таблице критериев не проверяет условия, которые есть только в этих правилах.`,
+      fix: `Добавьте в критерии приёмки пример с исходными условиями, действием и ожидаемым результатом для ${uncovered.length === 1 ? "правила" : "каждого из правил"} ${ids}.`,
+      question: `Какой пример с исходными данными и ожидаемым результатом подтверждает ${uncovered.length === 1 ? "правило" : "каждое из правил"} ${ids}?`,
+      topic: new RegExp(`(не покрыт|нет (ни одного )?(сценари|критери|пример|тест|кейс)|отсутству\\p{L}* (сценари|критери|пример|тест|кейс))`, "iu"),
+    },
+  ];
 }
 
 export function codeChecks(text: string): CodeFinding[] {
   const lines = text.split(/\r?\n/).map((t, i) => ({ no: i + 1, text: t }));
-  return [...moneyUnits(lines), ...fieldTypes(lines), ...mutatingGet(lines), ...jsonWithoutBody(lines), ...statusSections(lines), ...emptyValues(lines)];
+  return [
+    ...moneyUnits(lines),
+    ...fieldTypes(lines),
+    ...mutatingGet(lines),
+    ...jsonWithoutBody(lines),
+    ...statusSections(lines),
+    ...emptyValues(lines),
+    ...acceptanceCoverage(lines),
+  ];
 }

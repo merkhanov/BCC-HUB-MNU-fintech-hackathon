@@ -74,3 +74,35 @@ test("rules stay quiet when the document is consistent", () => {
 test("a GET that only reads is not flagged", () => {
   expect(rules("| **REST type** | GET |\n| **Request URL** | `/orders/getOrder` |\n")).toEqual([]);
 });
+
+test("an empty value counts as found only if the model names the field and says it is missing", () => {
+  const prod = codeChecks("| **Request URL** | Dev: `/a` . Prod: — |\n").find((f) => f.rule === "empty-values")!;
+  expect(prod.topic.test("Для Prod не указан URL метода")).toBe(true);
+  expect(prod.topic.test("Пропущен сценарий отката, не указан порядок согласования")).toBe(false);
+});
+
+test("a numbered rule that no acceptance example touches is reported", () => {
+  const text = `* **П-1.** Напоминание приходит за 3 дня до даты оплаты.
+* **П-2.** При переносе даты оплаты напоминание переносится вместе с ней.
+
+### Критерии приёмки
+
+| Условие | Действие | Результат |
+| --- | --- | --- |
+| Оплата 10 марта | Наступило 7 марта | Напоминание приходит 7 марта |
+`;
+  const f = codeChecks(text).find((x) => x.rule === "acceptance-coverage")!;
+  expect(f.problem).toContain("Правило П-2 не покрыто");
+  const g = new Grounder(doc(text));
+  expect(g.find(f.quotes[0]!)).not.toBeNull();
+});
+
+test("a code finding is dropped only when a model finding on the same lines names its subject", async () => {
+  const { groundCode, notYetFound } = await import("../src/pipeline.ts");
+  const text = "Скидка хранится в копейках, сумма заказа в рублях.\n";
+  const code = groundCode(doc(text), new Grounder(doc(text)));
+  const at = [code[0]!.places[0]!.location];
+  expect(notYetFound(code, [{ at, text: "Сумма в рублях, а скидка в копейках: единицы не совпадают" }])).toHaveLength(0);
+  expect(notYetFound(code, [{ at, text: "Не сказано, когда применяется скидка" }])).toHaveLength(1);
+  expect(notYetFound(code, [{ at: [{ ...at[0]!, line: 9, endLine: 9 }], text: "единицы не совпадают" }])).toHaveLength(1);
+});

@@ -1,7 +1,7 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
 import { errorText, type LLM } from "./llm.ts";
-import { type CodeFinding, codeChecks } from "./rules.ts";
+import { type CodeFinding, codeChecks, RULE_INFO } from "./rules.ts";
 import type { Location, SourceDoc } from "./load.ts";
 import {
   type Addressee,
@@ -57,6 +57,8 @@ export interface SetFinding {
   critical: boolean;
   /** "code" when a rule in src/rules.ts found it without the model. */
   by: "model" | "code";
+  /** The rule in src/rules.ts that found it. */
+  rule?: string;
 }
 
 /** A clarifying question to the document's author, tied to the findings it would resolve. */
@@ -76,6 +78,8 @@ export interface Question {
    * Breaks ties inside a priority tier; the cap keeps a question from winning by listing many small findings.
    */
   weight: number;
+  /** "code" when code asked it because no model question covered a critical or code finding. */
+  by: "model" | "code";
   reqIds: string[];
   places: { quote: string; location: Location }[];
 }
@@ -320,7 +324,7 @@ const overlaps = (a: Location, b: Location) =>
 type GroundedCode = CodeFinding & { places: { quote: string; location: Location }[] };
 
 /** Code findings with their places in the document; a finding whose quotes are all missing is dropped. */
-function groundCode(doc: SourceDoc, grounder: Grounder): GroundedCode[] {
+export function groundCode(doc: SourceDoc, grounder: Grounder): GroundedCode[] {
   return codeChecks(doc.text).flatMap((c) => {
     const places = c.quotes.flatMap((q) => {
       const g = grounder.find(q);
@@ -334,7 +338,7 @@ function groundCode(doc: SourceDoc, grounder: Grounder): GroundedCode[] {
  * Keep the code findings the model did not already make. A model finding counts as the same defect when it sits
  * on an overlapping line and its text names the rule's topic.
  */
-function notYetFound(code: GroundedCode[], model: { at: Location[]; text: string }[]): GroundedCode[] {
+export function notYetFound(code: GroundedCode[], model: { at: Location[]; text: string }[]): GroundedCode[] {
   return code.filter((c) => !model.some((m) => c.topic.test(m.text) && m.at.some((l) => c.places.some((p) => overlaps(l, p.location)))));
 }
 
@@ -352,6 +356,7 @@ function toSetFinding(c: GroundedCode, requirements: Requirement[]): Omit<SetFin
     question: c.question,
     critical: isCritical(c.criterion, c.severity),
     by: "code",
+    rule: c.rule,
   };
 }
 
@@ -388,11 +393,13 @@ async function askQuestions(
   const build = (
     raw: { addressee: Addressee; question: string; why: string; options: string[] },
     sources: AnyFinding[],
+    by: Question["by"] = "model",
   ): Omit<Question, "id"> => {
     const sorted = [...sources].sort(bySeverity);
     const top = sorted[0]!;
     return {
       ...raw,
+      by,
       critical: sorted.some((f) => f.critical),
       severity: top.severity,
       weight: sorted.slice(0, WEIGHT_CAP).reduce((sum, f) => sum + SEVERITY_WEIGHT[f.severity], 0),
@@ -401,11 +408,37 @@ async function askQuestions(
       places: uniqueBy(sorted.flatMap(places), (p) => `${p.location.line}:${p.location.page ?? 0}`).slice(0, 3),
     };
   };
-  const number = (qs: Omit<Question, "id">[]) =>
-    qs
-      .sort((a, b) => bySeverity(a, b) || b.weight - a.weight)
-      .slice(0, MAX_QUESTIONS)
-      .map((q, i) => ({ id: `В-${String(i + 1).padStart(2, "0")}`, ...q }));
+  const order = (a: Omit<Question, "id">, b: Omit<Question, "id">) => bySeverity(a, b) || b.weight - a.weight;
+  const typeOf = new Map(requirements.map((r) => [r.id, r.type]));
+  const addresseeFor = (f: AnyFinding): Addressee => {
+    if (f.kind === "set") return (f.rule && RULE_INFO[f.rule]?.addressee) || (f.criterion === "validatable" ? "qa" : "analyst");
+    if (f.criterion === "verifiable") return "qa";
+    return /interface|integration|data/.test(typeOf.get(f.reqId) ?? "") ? "architect" : "analyst";
+  };
+  /**
+   * Every critical finding and every code finding gets a question. The ones no model question cites are asked by
+   * code, one question per requirement or per rule, after the model's questions.
+   */
+  const coverRest = (asked: Omit<Question, "id">[]): Omit<Question, "id">[] => {
+    const cited = new Set(asked.flatMap((q) => q.sources));
+    const groups = new Map<string, AnyFinding[]>();
+    for (const f of all) {
+      if (!(f.critical || (f.kind === "set" && f.by === "code")) || cited.has(label(f)) || !f.question.trim()) continue;
+      const k = f.kind === "req" ? `req:${f.reqId}` : f.rule ? `rule:${f.rule}` : `set:${f.id}`;
+      groups.set(k, [...(groups.get(k) ?? []), f]);
+    }
+    const extra = [...groups.values()].map((g) => {
+      const sorted = [...g].sort(bySeverity);
+      const top = sorted[0]!;
+      const merged = g.length > 1 && top.kind === "set" && top.rule ? RULE_INFO[top.rule]?.groupQuestion : undefined;
+      return build({ addressee: addresseeFor(top), question: merged ?? top.question, why: top.problem, options: [] }, sorted, "code");
+    });
+    return uniqueBy(extra.sort(order), (q) => q.question.trim().toLowerCase());
+  };
+  const number = (asked: Omit<Question, "id">[]) => {
+    const main = asked.sort(order).slice(0, MAX_QUESTIONS);
+    return [...main, ...coverRest(main)].map((q, i) => ({ id: `В-${String(i + 1).padStart(2, "0")}`, ...q }));
+  };
 
   const briefs: FindingBrief[] = all.map((f) => ({
     id: f.key,
@@ -436,11 +469,7 @@ async function askQuestions(
   } catch (e) {
     log(`   шаг вопросов не удался: ${errorText(e).slice(0, 200)}`);
   }
-  const own = uniqueBy(
-    all.filter((f) => f.critical && f.question.trim()).sort(bySeverity),
-    (f) => f.question.trim().toLowerCase(),
-  ).map((f) => build({ addressee: "analyst", question: f.question, why: f.problem, options: [] }, [f]));
-  return { questions: number(own), fallback: true };
+  return { questions: number([]), fallback: true };
 }
 
 function chunk<T>(items: T[], size: number): T[][] {

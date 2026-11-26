@@ -311,8 +311,14 @@ export function renderReport(r: RunResult, p: Passport): string {
   else {
     out.push(
       r.questionsFallback
-        ? "Шаг составления вопросов не удался, поэтому ниже вопросы из критичных находок без объединения."
+        ? "Шаг составления вопросов не удался, поэтому вопросы ниже составил код из критичных находок и находок правил, по одному на требование или правило."
         : "Агент объединил находки, на которые отвечает один и тот же ответ, в один вопрос и расположил вопросы по важности. Каждый вопрос ссылается на находки и места документа, из которых он вырос.",
+      "",
+    );
+    const byCode = r.questions.filter((x) => x.by === "code");
+    if (byCode.length && !r.questionsFallback)
+      out.push(
+        `Вопросы ${byCode.length === 1 ? byCode[0]!.id : `с ${byCode[0]!.id} по ${byCode.at(-1)!.id}`} добавил код. Модель не включила эти находки ни в один вопрос, а каждая из них критичная или найдена правилом, поэтому без ответа автора её не исправить.`,
       "",
     );
     out.push(
@@ -328,7 +334,7 @@ export function renderReport(r: RunResult, p: Passport): string {
       "",
     );
     for (const x of r.questions) {
-      out.push(`#### ${x.id}. ${ADDRESSEE[x.addressee]}${x.critical ? ", по критичному дефекту" : ""}`, "");
+      out.push(`#### ${x.id}. ${ADDRESSEE[x.addressee]}${x.critical ? ", по критичному дефекту" : ""}${x.by === "code" && !r.questionsFallback ? ", вопрос добавил код" : ""}`, "");
       out.push(`**${x.question}**`, "");
       out.push(`- Почему важно: ${x.why}`);
       if (x.options.length) out.push(`- Варианты ответа: ${formatOptions(x.options)}`);
