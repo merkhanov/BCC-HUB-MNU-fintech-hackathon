@@ -48,6 +48,13 @@ function table(head: string[], rows: (string | number | null | undefined)[][]): 
   ].join("\n");
 }
 
+/** «1 вопрос», «2 вопроса», «5 вопросов». */
+const questionsWord = (n: number) => {
+  const d = n % 10;
+  const dd = n % 100;
+  return `${n} ${d === 1 && dd !== 11 ? "вопрос" : d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? "вопроса" : "вопросов"}`;
+};
+
 const q = (s: string) => `«${s.replace(/\s+/g, " ").trim()}»`;
 
 type Place = { quote: string; location: Location };
@@ -297,10 +304,15 @@ export function renderReport(r: RunResult, p: Passport): string {
     if (allCritical.length > TOP_FIXES) out.push("", `Остальные критичные дефекты (${allCritical.length - TOP_FIXES}) перечислены в разделе 5.`);
     out.push("");
   }
+  // Code-added questions are drafts from single findings. Section 7 keeps the model's merged questions with
+  // answer options; the drafts go to an appendix and to the questions file.
+  const splitQuestions = !r.questionsFallback && r.questions.some((x) => x.by === "code") && r.questions.some((x) => x.by === "model");
+  const mainQuestions = splitQuestions ? r.questions.filter((x) => x.by === "model") : r.questions;
+  const extraQuestions = splitQuestions ? r.questions.filter((x) => x.by === "code") : [];
   if (r.questions.length) {
-    const crit = r.questions.filter((x) => x.critical).length;
+    const crit = mainQuestions.filter((x) => x.critical).length;
     out.push(
-      `Чтобы исправить документ, автору нужно ответить на уточняющие вопросы из раздела 7. Вопросов: ${r.questions.length}, из них по критичным дефектам: ${crit}.`,
+      `Чтобы исправить документ, автору нужно ответить на уточняющие вопросы из раздела 7. Вопросов: ${mainQuestions.length}, из них по критичным дефектам: ${crit}.${extraQuestions.length ? ` Ещё ${questionsWord(extraQuestions.length)} по отдельным критичным находкам в приложении.` : ""}`,
       "",
     );
   }
@@ -315,11 +327,8 @@ export function renderReport(r: RunResult, p: Passport): string {
         : "Агент объединил находки, на которые отвечает один и тот же ответ, в один вопрос и расположил вопросы по важности. Каждый вопрос ссылается на находки и места документа, из которых он вырос.",
       "",
     );
-    // Code-added questions are drafts from single findings; they follow the model's list in their own part so the
-    // merged questions with answer options stay first and short.
-    const split = !r.questionsFallback && r.questions.some((x) => x.by === "code") && r.questions.some((x) => x.by === "model");
-    const main = split ? r.questions.filter((x) => x.by === "model") : r.questions;
-    const extra = split ? r.questions.filter((x) => x.by === "code") : [];
+    const main = mainQuestions;
+    const extra = extraQuestions;
     const questionTable = (qs: typeof r.questions) =>
       table(
         ["№", "Кому", "Вопрос", "Место"],
@@ -337,20 +346,31 @@ export function renderReport(r: RunResult, p: Passport): string {
     };
     out.push(questionTable(main), "");
     questionBlocks(main);
-    if (extra.length) {
-      out.push("### Вопросы по остальным критичным находкам", "");
+    if (extra.length)
       out.push(
-        `Эти вопросы (${extra.length}) добавил код. Модель не включила эти находки ни в один вопрос выше, а каждая из них критичная или найдена правилом, поэтому без ответа автора её не исправить. Вопрос взят из самой серьёзной находки по требованию или правилу.`,
+        `Ещё ${questionsWord(extra.length)} по критичным находкам, которые модель не включила ни в один вопрос, добавил код. Они в приложении «Вопросы по остальным критичным находкам» и в файле вопросов.`,
         "",
       );
-      out.push(questionTable(extra), "");
-      questionBlocks(extra);
-    }
   }
   if (r.answers.length) {
     out.push("### Учтённые ответы автора", "");
     out.push("Эти ответы на вопросы прошлого прогона агент передал модели как дополнения к документу.", "");
     out.push(table(["Вопрос", "Ответ автора"], r.answers.map((a) => [a.question, a.answer])), "");
+  }
+
+  if (extraQuestions.length) {
+    out.push("## Приложение. Вопросы по остальным критичным находкам", "");
+    out.push(
+      "Эти вопросы добавил код. Модель не включила эти находки ни в один вопрос раздела 7, а каждая из них критичная или найдена правилом, поэтому без ответа автора её не исправить. Вопрос взят из самой серьёзной находки по требованию или правилу.",
+      "",
+    );
+    out.push(
+      table(
+        ["№", "Кому", "Вопрос", "Место", "Из находок"],
+        extraQuestions.map((x) => [x.id, ADDRESSEE[x.addressee], x.question, formatPlaces(x.places), x.sources.join("; ")]),
+      ),
+      "",
+    );
   }
 
   if (r.rejected.length) {
