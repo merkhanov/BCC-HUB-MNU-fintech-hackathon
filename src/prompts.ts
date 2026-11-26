@@ -194,6 +194,8 @@ ${describeCriteria(SET_INFO)}
 export interface PairBrief {
   a: { id: string; doc_id: string | null; section: string; quote: string };
   b: { id: string; doc_id: string | null; section: string; quote: string };
+  /** What code thinks is worth checking in this pair. */
+  hint?: string;
 }
 
 /**
@@ -211,6 +213,7 @@ export function pairsPrompt(docText: string, pairs: PairBrief[], answers: Answer
 - Если в паре есть критерий приёмки, проверь его расчётом: примени правило из пары к исходным условиям критерия и сравни результат с ожидаемым результатом критерия.
 - Если такой случай есть: conflict true, scenario описывает его одной или двумя фразами с числами, quotes содержит по дословной цитате из каждого места, затем problem, fix и question.
 - Если случая нет или ты не можешь назвать его конкретно: conflict false, остальные текстовые поля пустые. Разная подробность двух мест противоречием не считается.
+- Если у пары есть hint, начни с указанного в нём случая.
 - Верни ответ по каждой паре из списка, a и b без изменений.`,
     user: `Документ:\n<<<\n${docText}\n>>>${answersBlock(answers)}\n\nПары для проверки:\n${JSON.stringify(pairs, null, 1)}`,
   };

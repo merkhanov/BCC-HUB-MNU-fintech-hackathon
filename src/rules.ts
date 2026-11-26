@@ -300,6 +300,22 @@ const STOP = new Set(["должен", "должна", "должно", "може�
 const CAP = /(максимум|не более|не чаще|не больше|только один|один раз|однократн|единожды|at most|no more than)/iu;
 const OVERRIDE = /(независимо|всегда|в любом случае|сбрасыва|повторн|снова|заново|regardless|always)/iu;
 
+/**
+ * What to check in a pair, from the shape of its two texts: a limit next to something that acts regardless of
+ * it, or a worked example next to the rule it should follow.
+ */
+export function pairHint(a: { quote: string; type: string }, b: { quote: string; type: string }): string | undefined {
+  const [limit, override] = CAP.test(a.quote) && OVERRIDE.test(b.quote) ? [a, b] : CAP.test(b.quote) && OVERRIDE.test(a.quote) ? [b, a] : [];
+  if (limit && override) {
+    const cap = CAP.exec(limit.quote)![0];
+    const over = OVERRIDE.exec(override.quote)![0];
+    return `Одно место ограничивает действие («${cap}»), другое требует его «${over}». Проверь случай, когда ограничение уже исчерпано, а условие второго места выполнено: что должна сделать система?`;
+  }
+  if ((a.type === "acceptance") !== (b.type === "acceptance"))
+    return "Посчитай критерий приёмки по правилу из пары и сравни с его ожидаемым результатом.";
+  return undefined;
+}
+
 /** Rough Russian stem: enough to match «порога» with «порогу» and «покупка» with «покупки». */
 export function stems(text: string): Set<string> {
   const out = new Set<string>();

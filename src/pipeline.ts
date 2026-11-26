@@ -1,7 +1,7 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
 import { errorText, type LLM } from "./llm.ts";
-import { acceptanceRows, type CodeFinding, codeChecks, RULE_INFO, relatedPairs } from "./rules.ts";
+import { acceptanceRows, type CodeFinding, codeChecks, pairHint, RULE_INFO, relatedPairs } from "./rules.ts";
 import type { Location, SourceDoc } from "./load.ts";
 import {
   type Addressee,
@@ -404,7 +404,7 @@ async function checkPairs(
   const brief = (r: Requirement) => ({ id: idOf(r), doc_id: r.docId, section: r.section, quote: r.quote });
   let out;
   try {
-    out = await llm.json("pairs", pairsPrompt(doc.text, pairs.map(([a, b]) => ({ a: brief(a), b: brief(b) })), answers), PairsSchema, {
+    out = await llm.json("pairs", pairsPrompt(doc.text, pairs.map(([a, b]) => ({ a: brief(a), b: brief(b), hint: pairHint(a, b) })), answers), PairsSchema, {
       attempts: PAIR_ATTEMPTS,
     });
   } catch (e) {
