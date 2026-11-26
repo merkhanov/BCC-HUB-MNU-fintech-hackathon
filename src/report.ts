@@ -1,6 +1,7 @@
 import { INDIVIDUAL, INDIVIDUAL_INFO, type IndividualCriterion, SET, SET_INFO, type SetCriterion } from "./criteria.ts";
 import { formatLocation } from "./load.ts";
-import type { RunResult, Severity } from "./pipeline.ts";
+import { bySeverity, type RunResult, type Severity } from "./pipeline.ts";
+import type { Addressee } from "./prompts.ts";
 
 export interface Passport {
   file: string;
@@ -15,10 +16,11 @@ export interface Passport {
   agentVersion: string;
   calls: number;
   cached: number;
+  /** File with the author's answers to an earlier run's questions. */
+  answersFile?: string;
 }
 
 const SEVERITY: Record<Severity, string> = { high: "высокая", medium: "средняя", low: "низкая" };
-const SEVERITY_ORDER: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 const TYPE: Record<string, string> = {
   functional: "функц.",
   nonfunctional: "нефункц.",
@@ -48,16 +50,13 @@ function table(head: string[], rows: (string | number | null | undefined)[][]): 
 
 const q = (s: string) => `«${s.replace(/\s+/g, " ").trim()}»`;
 
-/** Within one severity, contradictions block work first, then untestable, ambiguous and incomplete items. */
-const CRITERION_ORDER: Record<string, number> = { consistent: 0, correct: 1, verifiable: 2, unambiguous: 3, complete: 4 };
-
-function bySeverity<T extends { severity: Severity; critical: boolean; criterion: string }>(a: T, b: T): number {
-  return (
-    Number(b.critical) - Number(a.critical) ||
-    SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
-    (CRITERION_ORDER[a.criterion] ?? 9) - (CRITERION_ORDER[b.criterion] ?? 9)
-  );
-}
+export const ADDRESSEE: Record<Addressee, string> = {
+  business: "Бизнес-заказчику",
+  analyst: "Аналитику",
+  architect: "Архитектору",
+  qa: "Тестированию",
+  security: "Безопасности",
+};
 
 function formatDate(d: Date): string {
   const offset = -d.getTimezoneOffset();
@@ -77,7 +76,6 @@ export function renderReport(r: RunResult, p: Passport): string {
   const findingsOf = (id: string) => r.findings.filter((f) => f.reqId === id).sort(bySeverity);
   const allCritical = [...r.findings.filter((f) => f.critical), ...r.setFindings.filter((f) => f.critical)];
   const setSorted = [...r.setFindings].sort(bySeverity);
-  const setIds = new Map(setSorted.map((f, i) => [f, `Н-${String(i + 1).padStart(2, "0")}`]));
 
   const out: string[] = [];
   out.push(`# Отчёт о проверке требований`, "", `**Документ:** ${r.title}`, "");
@@ -99,6 +97,7 @@ export function renderReport(r: RunResult, p: Passport): string {
         ["Провайдер LLM", p.provider],
         ["Модель", modelLine(p)],
         ["Запросов к API", p.cached ? `${p.calls}, ещё шагов из кэша прошлого прогона: ${p.cached}` : p.calls],
+        ["Уточнения автора", p.answersFile ? `ответов: ${r.answers.length}, файл \`${p.answersFile}\`` : "нет, первый прогон"],
         ["Версия агента", `\`${p.agentVersion}\``],
         ["Критерии", "ISO/IEC/IEEE 29148:2018 п. 5.2.5, 5.2.6; IEEE Std 830-1998 п. 4.3"],
       ],
@@ -174,7 +173,7 @@ export function renderReport(r: RunResult, p: Passport): string {
     }
     out.push(
       table(
-        ["Критерий", "Серьёзность", "Место", "Цитата", "Нарушение", "Как исправить"],
+        ["Критерий", "Серьёзность", "Место", "Цитата", "Нарушение", "Как исправить", "Вопрос автору"],
         fs.map((f) => [
           INDIVIDUAL_INFO[f.criterion].name,
           f.critical ? `**${SEVERITY[f.severity]}, критично**` : SEVERITY[f.severity],
@@ -182,6 +181,7 @@ export function renderReport(r: RunResult, p: Passport): string {
           q(f.quote),
           f.problem,
           f.fix,
+          f.question,
         ]),
       ),
       "",
@@ -202,10 +202,10 @@ export function renderReport(r: RunResult, p: Passport): string {
     "",
   );
   for (const f of setSorted) {
-    out.push(`#### ${setIds.get(f)}. ${SET_INFO[f.criterion].name}, ${SEVERITY[f.severity]}${f.critical ? ", критично" : ""}`, "");
+    out.push(`#### ${f.id}. ${SET_INFO[f.criterion].name}, ${SEVERITY[f.severity]}${f.critical ? ", критично" : ""}`, "");
     out.push(`- Места: ${f.places.map((pl) => `${q(pl.quote)} (${formatLocation(pl.location)})`).join("; ")}.`);
     if (f.reqIds.length) out.push(`- Требования: ${f.reqIds.map(label).join(", ")}.`);
-    out.push(`- Нарушение: ${f.problem}`, `- Как исправить: ${f.fix}`, "");
+    out.push(`- Нарушение: ${f.problem}`, `- Как исправить: ${f.fix}`, `- Вопрос автору: ${f.question}`, "");
   }
   if (r.setFindings.length === 0) out.push("Нарушений на уровне набора агент не нашёл.", "");
 
@@ -264,7 +264,7 @@ export function renderReport(r: RunResult, p: Passport): string {
           "reqId" in f
             ? [label(f.reqId), INDIVIDUAL_INFO[f.criterion].name, formatLocation(f.location), f.problem]
             : [
-                `${setIds.get(f)} (набор)`,
+                `${f.id} (набор)`,
                 SET_INFO[f.criterion].name,
                 f.places.map((pl) => formatLocation(pl.location)).join("; "),
                 f.problem,
@@ -281,11 +281,55 @@ export function renderReport(r: RunResult, p: Passport): string {
     out.push("Что исправить в первую очередь:", "");
     const top = (allCritical.length ? allCritical : [...r.findings, ...r.setFindings]).sort(bySeverity).slice(0, TOP_FIXES);
     top.forEach((f, i) => {
-      const where = "reqId" in f ? `${label(f.reqId)}, ${formatLocation(f.location)}` : `${setIds.get(f)}, ${formatLocation(f.places[0]!.location)}`;
+      const where = "reqId" in f ? `${label(f.reqId)}, ${formatLocation(f.location)}` : `${f.id}, ${formatLocation(f.places[0]!.location)}`;
       out.push(`${i + 1}. ${where}. ${f.fix}`);
     });
     if (allCritical.length > TOP_FIXES) out.push("", `Остальные критичные дефекты (${allCritical.length - TOP_FIXES}) перечислены в разделе 5.`);
     out.push("");
+  }
+  if (r.questions.length) {
+    const crit = r.questions.filter((x) => x.critical).length;
+    out.push(
+      `Чтобы исправить документ, автору нужно ответить на уточняющие вопросы из раздела 7. Вопросов: ${r.questions.length}, из них по критичным дефектам: ${crit}.`,
+      "",
+    );
+  }
+
+  // 7. Clarifying questions
+  out.push("## 7. Уточняющие вопросы к автору документа", "");
+  if (r.questions.length === 0) out.push("Вопросов нет: агент не нашёл нарушений, которые требуют уточнения.", "");
+  else {
+    out.push(
+      r.questionsFallback
+        ? "Шаг составления вопросов не удался, поэтому ниже вопросы из критичных находок без объединения."
+        : "Агент объединил находки, на которые отвечает один и тот же ответ, в один вопрос и расположил вопросы по важности. Каждый вопрос ссылается на находки и места документа, из которых он вырос.",
+      "",
+    );
+    out.push(
+      table(
+        ["№", "Кому", "Вопрос", "Место"],
+        r.questions.map((x) => [
+          x.critical ? `**${x.id}**` : x.id,
+          ADDRESSEE[x.addressee],
+          x.question,
+          x.places.map((pl) => formatLocation(pl.location)).join("; "),
+        ]),
+      ),
+      "",
+    );
+    for (const x of r.questions) {
+      out.push(`#### ${x.id}. ${ADDRESSEE[x.addressee]}${x.critical ? ", по критичному дефекту" : ""}`, "");
+      out.push(`**${x.question}**`, "");
+      out.push(`- Почему важно: ${x.why}`);
+      if (x.options.length) out.push(`- Варианты ответа: ${x.options.map((o, i) => `${i + 1}) ${o}`).join("; ")}`);
+      out.push(`- Места: ${x.places.map((pl) => `${q(pl.quote)} (${formatLocation(pl.location)})`).join("; ")}`);
+      out.push(`- Из находок: ${x.sources.join("; ")}`, "");
+    }
+  }
+  if (r.answers.length) {
+    out.push("### Учтённые ответы автора", "");
+    out.push("Эти ответы на вопросы прошлого прогона агент передал модели как дополнения к документу.", "");
+    out.push(table(["Вопрос", "Ответ автора"], r.answers.map((a) => [a.question, a.answer])), "");
   }
 
   if (r.rejected.length) {

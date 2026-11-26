@@ -28,6 +28,7 @@ export const CheckSchema = z.object({
           quote: z.string().describe("Дословный фрагмент документа, в котором дефект"),
           problem: z.string().describe("В чём нарушение, со ссылкой на текст"),
           fix: z.string().describe("Как переформулировать или что добавить"),
+          question: z.string().describe("Уточняющий вопрос автору документа, ответ на который снимает дефект"),
         }),
       ),
     }),
@@ -43,6 +44,22 @@ export const SetSchema = z.object({
       quotes: z.array(z.string()).min(1).describe("Дословные фрагменты документа; для противоречия — оба места"),
       problem: z.string(),
       fix: z.string(),
+      question: z.string().describe("Уточняющий вопрос автору документа, ответ на который снимает дефект"),
+    }),
+  ),
+});
+
+export const ADDRESSEES = ["business", "analyst", "architect", "qa", "security"] as const;
+export type Addressee = (typeof ADDRESSEES)[number];
+
+export const QuestionsSchema = z.object({
+  questions: z.array(
+    z.object({
+      addressee: z.enum(ADDRESSEES).describe("Кто должен ответить"),
+      question: z.string().describe("Вопрос автору документа"),
+      why: z.string().describe("Что нельзя реализовать или проверить без ответа"),
+      options: z.array(z.string()).max(3).describe("До трёх вариантов ответа, из которых автору проще выбрать"),
+      source_ids: z.array(z.string()).min(1).describe("ID находок из списка (F3, S1), из которых вырос вопрос"),
     }),
   ),
 });
@@ -50,6 +67,13 @@ export const SetSchema = z.object({
 export type Extracted = z.infer<typeof ExtractSchema>;
 export type CheckResult = z.infer<typeof CheckSchema>;
 export type SetResult = z.infer<typeof SetSchema>;
+export type QuestionsResult = z.infer<typeof QuestionsSchema>;
+
+/** Answers the author gave to an earlier run's questions. */
+export interface Answer {
+  question: string;
+  answer: string;
+}
 
 const ROLE = `Ты — инженер по требованиям и проводишь статическое ревью документа с требованиями до начала разработки.
 Ты не запускаешь программу и не придумываешь требования. Ты оцениваешь только то, что написано.
@@ -60,7 +84,15 @@ const ROLE = `Ты — инженер по требованиям и прово�
 - Из строки таблицы цитируй текст ячеек подряд через пробел, без символов «|» и других разделителей.
 - Каждое нарушение конкретно: что именно в цитате не так и почему это мешает разработке или тестированию. Без общих фраз.
 - Не выдумывай нарушений, которых нет в тексте. Но документ до ревью обычно содержит много дефектов, и пропущенный дефект дороже лишнего вопроса: проверяй каждое требование по каждому критерию по очереди.
+- question — уточняющий вопрос автору документа, на который нужно ответить, чтобы снять дефект. Вопрос конкретный: называет цитируемое место, значение или сценарий и, если можно, предлагает варианты («Лимит 10 000 ₸ включает сумму 10 000 ₸ или только суммы выше?»). Не спрашивай «уточните требование».
 - severity: high — по требованию нельзя однозначно реализовать или протестировать, либо оно противоречит другому месту; medium — существенный пробел или неоднозначность, которую придётся уточнять; low — оформление и стиль.`;
+
+function answersBlock(answers: Answer[]): string {
+  if (answers.length === 0) return "";
+  return `\n\nУточнения автора документа, полученные на вопросы прошлой проверки. Считай их действующими дополнениями к документу: если ответ закрывает дефект, не сообщай о нём, если ответ сам неполон или противоречит документу, это нарушение. Цитаты в находках бери только из документа выше, не из уточнений.\n${answers
+    .map((a, i) => `${i + 1}. Вопрос: ${a.question}\n   Ответ автора: ${a.answer}`)
+    .join("\n")}`;
+}
 
 export function extractPrompt(docText: string): Prompt {
   return {
@@ -80,7 +112,11 @@ export function extractPrompt(docText: string): Prompt {
   };
 }
 
-export function checkPrompt(docText: string, batch: { id: string; doc_id: string | null; section: string; quote: string }[]): Prompt {
+export function checkPrompt(
+  docText: string,
+  batch: { id: string; doc_id: string | null; section: string; quote: string }[],
+  answers: Answer[] = [],
+): Prompt {
   return {
     system: `${ROLE}
 
@@ -101,11 +137,11 @@ ${describeCriteria(INDIVIDUAL_INFO)}
 - Сверь требование с критериями приёмки и примерами: посчитай ожидаемый результат по правилу и сравни с записанным.
 - Проектное решение (конкретная архитектура, хранилище, формат) внутри требования без обоснования — нарушение уместности уровня.
 - Цитата находки — фрагмент самого требования или связанного с ним места документа.`,
-    user: `Документ:\n<<<\n${docText}\n>>>\n\nТребования для проверки:\n${JSON.stringify(batch, null, 1)}`,
+    user: `Документ:\n<<<\n${docText}\n>>>${answersBlock(answers)}\n\nТребования для проверки:\n${JSON.stringify(batch, null, 1)}`,
   };
 }
 
-export function setPrompt(docText: string, reqs: { id: string; doc_id: string | null; summary: string }[]): Prompt {
+export function setPrompt(docText: string, reqs: { id: string; doc_id: string | null; summary: string }[], answers: Answer[] = []): Prompt {
   return {
     system: `${ROLE}
 
@@ -121,6 +157,36 @@ ${describeCriteria(SET_INFO)}
 - Ищи пропущенные сценарии и пустые разделы: ошибки, граничные случаи, роли, состояния, откат, безопасность, версия документа, согласование.
 - Каждая находка ссылается хотя бы на одно место документа цитатой. Если речь о пустом разделе, цитируй его заголовок или заполнитель.
 - req_ids — значения поля id затронутых требований из списка (например «R3»), может быть пустым для пропусков.`,
-    user: `Документ:\n<<<\n${docText}\n>>>\n\nНарезка требований:\n${JSON.stringify(reqs, null, 1)}`,
+    user: `Документ:\n<<<\n${docText}\n>>>${answersBlock(answers)}\n\nНарезка требований:\n${JSON.stringify(reqs, null, 1)}`,
+  };
+}
+
+export interface FindingBrief {
+  id: string;
+  where: string;
+  criterion: string;
+  severity: string;
+  critical: boolean;
+  quote: string;
+  problem: string;
+  question: string;
+}
+
+export function questionsPrompt(docText: string, findings: FindingBrief[]): Prompt {
+  return {
+    system: `${ROLE}
+
+Задача этого шага — составить список уточняющих вопросов автору документа по итогам ревью. Это вопросы, которые аналитик задал бы на встрече с заказчиком перед началом разработки.
+
+Правила шага:
+- На входе список находок ревью, у каждой есть id (F — находки по отдельным требованиям, S — по набору) и черновой вопрос.
+- Объедини находки, на которые отвечает один и тот же ответ, в один вопрос. Не задавай один вопрос дважды.
+- Сначала вопросы по критичным находкам (critical: true), затем остальные. Всего от 8 до 20 вопросов. Находки серьёзности low без критичности пропускай, если вопросов и так больше 15.
+- Вопрос конкретный и закрытый, где это возможно: называет место, значение, сценарий, предлагает варианты ответа в options. Плохо: «Уточните требование Ф-3». Хорошо: «Если платёж создан менее чем за 3 дня до даты оплаты, напоминание отправляется сразу, в день оплаты или не отправляется?».
+- why — одна фраза о том, что нельзя реализовать или проверить без ответа.
+- addressee — кто отвечает: business (продукт и бизнес-правила), analyst (формулировки, сценарии, критерии приёмки), architect (интеграция, API, данные, архитектура), qa (измеримость и способ проверки), security (доступ, персональные данные, безопасность).
+- source_ids — id всех находок из списка, на которые отвечает вопрос, без изменений. Вопрос без source_ids не принимается.
+- Не придумывай вопросов, которых нет в находках.`,
+    user: `Документ:\n<<<\n${docText}\n>>>\n\nНаходки ревью:\n${JSON.stringify(findings, null, 1)}`,
   };
 }
