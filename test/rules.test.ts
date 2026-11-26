@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Grounder } from "../src/ground.ts";
 import type { SourceDoc } from "../src/load.ts";
-import { codeChecks } from "../src/rules.ts";
+import { codeChecks, relatedPairs } from "../src/rules.ts";
 
 const doc = (text: string): SourceDoc => ({ name: "t.md", format: "md", text, sha256: "", pageCount: undefined } as unknown as SourceDoc);
 const rules = (text: string) => codeChecks(text).map((f) => f.rule);
@@ -73,4 +73,18 @@ test("rules stay quiet when the document is consistent", () => {
 
 test("a GET that only reads is not flagged", () => {
   expect(rules("| **REST type** | GET |\n| **Request URL** | `/orders/getOrder` |\n")).toEqual([]);
+});
+
+test("related pairs put a limit next to its override and an acceptance case next to its rule", () => {
+  const reqs = [
+    { id: "R1", type: "functional", quote: "Клиент получает напоминание об оплате максимум один раз в неделю." },
+    { id: "R2", type: "functional", quote: "При смене даты оплаты напоминание приходит снова независимо от прошлых напоминаний." },
+    { id: "R3", type: "functional", quote: "Дата оплаты определяется по часовому поясу клиента." },
+    { id: "R4", type: "acceptance", quote: "Платёж на 1 марта в 23:50 по часовому поясу банка попадает в мартовский отчёт." },
+    { id: "R5", type: "ui", quote: "Экран показывает список платежей и кнопку «Оплатить»." },
+  ];
+  const pairs = relatedPairs(reqs);
+  expect(pairs).toContainEqual(["R3", "R4"]);
+  expect(pairs).toContainEqual(["R1", "R2"]);
+  expect(pairs.flat()).not.toContain("R5");
 });
