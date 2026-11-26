@@ -53,17 +53,30 @@ test("readCache: false asks the model again but still saves the answer", async (
   expect(replay.cached).toBe(1);
 });
 
-test("a request that never answers is cut off by the deadline and the next model is used", async () => {
-  class Hanging extends FakeLLM {
-    protected override async complete(model: string, _prompt?: Prompt, _schema?: z.ZodType, signal?: AbortSignal) {
-      if (model !== "hang") return super.complete(model);
-      this.requests.push(model);
-      return new Promise<never>((_, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
-    }
+class Hanging extends FakeLLM {
+  protected override async complete(model: string, _prompt?: Prompt, _schema?: z.ZodType, signal?: AbortSignal) {
+    if (model !== "hang") return super.complete(model);
+    this.requests.push(model);
+    return new Promise<never>((_, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
   }
+}
+
+test("a request that never answers is cut off by the deadline, and after two the next model is used", async () => {
   const llm = new Hanging(["hang", "spare"], { timeoutMs: 20 });
   expect(await llm.json("check-1", prompt, Schema)).toEqual({ ok: true });
-  expect(llm.requests).toEqual(["hang", "hang", "hang", "hang", "hang", "spare", "spare"]);
+  expect(llm.requests).toEqual(["hang", "hang", "spare", "spare"]);
+});
+
+test("on the last model a timeout is retried up to the attempt limit", async () => {
+  const llm = new Hanging(["hang"], { timeoutMs: 5 });
+  await expect(llm.json("check-1", prompt, Schema)).rejects.toThrow("нет ответа");
+  expect(llm.requests).toHaveLength(8);
+});
+
+test("a step can lower its attempt limit", async () => {
+  const llm = new FakeLLM(["busy"], {});
+  await expect(llm.json("questions", prompt, Schema, { attempts: 3 })).rejects.toThrow();
+  expect(llm.requests).toEqual(["busy", "busy", "busy"]);
 });
 
 test("a daily quota error switches model at once instead of retrying", async () => {

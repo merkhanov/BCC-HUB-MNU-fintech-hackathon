@@ -17,7 +17,12 @@ export interface LLM {
   calls: number;
   /** Steps answered from the local cache without calling the API. */
   cached: number;
-  json<T>(step: string, prompt: Prompt, schema: z.ZodType<T>): Promise<T>;
+  /** `attempts` lowers the per-model attempt limit for a step that has its own fallback. */
+  json<T>(step: string, prompt: Prompt, schema: z.ZodType<T>, opts?: StepOptions): Promise<T>;
+}
+
+export interface StepOptions {
+  attempts?: number;
 }
 
 export interface LLMOptions {
@@ -40,6 +45,11 @@ const REQUEST_TIMEOUT_MS = 300_000;
 /** Backoff 5, 10, 20, 40 s… capped at 60 s. */
 const ATTEMPTS_WITH_FALLBACK = 5;
 const ATTEMPTS_LAST_MODEL = 8;
+/**
+ * A request that hung until the deadline has likely been counted against the daily quota and cost 5 minutes.
+ * After this many on one model, the next model in the chain gets the step.
+ */
+const TIMEOUTS_BEFORE_SWITCH = 2;
 
 export function createLLM(env: Record<string, string | undefined> = process.env, opts: LLMOptions = {}): LLM {
   const provider = (env.LLM_PROVIDER ?? "gemini").toLowerCase();
@@ -161,7 +171,7 @@ export abstract class BaseLLM implements LLM {
     }
   }
 
-  async json<T>(step: string, prompt: Prompt, schema: z.ZodType<T>): Promise<T> {
+  async json<T>(step: string, prompt: Prompt, schema: z.ZodType<T>, stepOpts: StepOptions = {}): Promise<T> {
     const log = this.opts.log ?? (() => {});
     const fileFor = (model: string) =>
       this.opts.cacheDir && join(this.opts.cacheDir, `${cacheKey(this.provider, model, prompt, schema)}.json`);
@@ -184,7 +194,9 @@ export abstract class BaseLLM implements LLM {
       const last = this.current === this.models.length - 1;
       try {
         const started = Date.now();
-        const { value, reportedModel } = await this.withRetry(step, model, prompt, schema, last ? ATTEMPTS_LAST_MODEL : ATTEMPTS_WITH_FALLBACK);
+        const limit = last ? ATTEMPTS_LAST_MODEL : ATTEMPTS_WITH_FALLBACK;
+        const attempts = Math.min(limit, stepOpts.attempts ?? limit);
+        const { value, reportedModel } = await this.withRetry(step, model, prompt, schema, attempts, last);
         const used = reportedModel || model;
         this.stepModels[step] = used;
         log(`   [${step}] ${((Date.now() - started) / 1000).toFixed(0)} с, ${used}`);
@@ -201,8 +213,16 @@ export abstract class BaseLLM implements LLM {
     }
   }
 
-  private async withRetry<T>(step: string, model: string, prompt: Prompt, schema: z.ZodType<T>, attempts: number) {
+  private async withRetry<T>(
+    step: string,
+    model: string,
+    prompt: Prompt,
+    schema: z.ZodType<T>,
+    attempts: number,
+    last: boolean,
+  ) {
     let feedback: string | undefined;
+    let timeouts = 0;
     for (let attempt = 1; ; attempt++) {
       try {
         this.calls++;
@@ -214,6 +234,7 @@ export abstract class BaseLLM implements LLM {
       } catch (e) {
         const badAnswer = e instanceof RetryableError || e instanceof z.ZodError || e instanceof SyntaxError;
         if ((!badAnswer && !isTransient(e)) || isDailyQuota(e) || attempt >= attempts) throw e;
+        if (e instanceof RequestTimeout && ++timeouts >= TIMEOUTS_BEFORE_SWITCH && !last) throw e;
         const msg = e instanceof z.ZodError ? z.prettifyError(e) : errorText(e);
         if (badAnswer) feedback = msg.slice(0, 1000);
         const delay = Math.min(60_000, 2 ** attempt * (this.opts.backoffMs ?? 2_500));

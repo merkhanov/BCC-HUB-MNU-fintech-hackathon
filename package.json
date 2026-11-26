@@ -10,6 +10,7 @@
   "scripts": {
     "start": "bun run src/cli.ts",
     "test": "bun test",
+    "recall": "bun run eval/recall.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

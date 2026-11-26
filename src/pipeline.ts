@@ -145,6 +145,7 @@ export function bySeverity<T extends { severity: Severity; critical: boolean; cr
 }
 
 const MAX_QUESTIONS = 20;
+const QUESTION_ATTEMPTS = 3;
 
 export function isCritical(criterion: string, severity: Severity): boolean {
   return severity === "high" || (severity === "medium" && CRITICAL_CRITERIA.has(criterion));
@@ -357,7 +358,8 @@ async function askQuestions(
     question: f.question,
   }));
   try {
-    const out = await llm.json("questions", questionsPrompt(docText, briefs), QuestionsSchema);
+    // The step has a fallback below, so it gets fewer attempts than the checks that have none.
+    const out = await llm.json("questions", questionsPrompt(docText, briefs), QuestionsSchema, { attempts: QUESTION_ATTEMPTS });
     const built: Omit<Question, "id">[] = [];
     let dropped = 0;
     for (const q of out.questions) {
