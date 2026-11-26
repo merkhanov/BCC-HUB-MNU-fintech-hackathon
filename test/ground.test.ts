@@ -31,6 +31,12 @@ describe("Grounder", () => {
     expect(g2.find("Переводы и снятие наличных")).not.toBeNull();
   });
 
+  test("keeps a standalone dash at a line end and ignores DOCX bullets", () => {
+    const docx = new Grounder(md("Request URL\n\nDev: /alerts/saveLimit . Prod: —\n\nCURL\n\n\t•\tContent-Type: application/json .\n\n\t•\tТело не используется."));
+    expect(docx.find("Request URL Dev: /alerts/saveLimit . Prod: —")).not.toBeNull();
+    expect(docx.find("Content-Type: application/json . Тело не используется.")).not.toBeNull();
+  });
+
   test("rejects quotes that are not in the document or too short", () => {
     expect(g.find("этого нет")).toBeNull();
     expect(g.find("Ф")).toBeNull();

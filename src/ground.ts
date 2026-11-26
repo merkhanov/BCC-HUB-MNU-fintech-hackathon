@@ -1,7 +1,7 @@
 import { locate, type Location, type SourceDoc } from "./load.ts";
 
 // Characters that differ between a Markdown/PDF source and a model's quote but carry no meaning.
-const DROP = new Set([..."*`|#>_\"'«»„“”‘’"]);
+const DROP = new Set([..."*`|#>_\"'«»„“”‘’•◦▪·"]);
 const DASHES = /[‐‑‒–—―−]/;
 const ELLIPSIS = /\s*(?:\.\.\.|…)\s*/;
 const MIN_FRAGMENT = 12;
@@ -14,7 +14,8 @@ interface Normalized {
 
 /**
  * Lowercase and drop whitespace, markup and quote marks. Whitespace is dropped entirely, not collapsed,
- * because PDF text breaks lines inside words ("пере\nводы"); a hyphen before a line break is dropped too.
+ * because PDF text breaks lines inside words ("пере\nводы"). A hyphen between a letter and a line break is a word
+ * break and is dropped too; a standalone dash at the end of a line ("Prod: —") is kept. List bullets from DOCX are dropped.
  */
 export function normalize(s: string): Normalized {
   let norm = "";
@@ -24,7 +25,7 @@ export function normalize(s: string): Normalized {
     if (DROP.has(ch) || /\s/.test(ch) || ch === "\u00ad") continue;
     if (ch === "ё") ch = "е";
     if (ch === "-" || DASHES.test(ch)) {
-      if (/^[ \t]*\r?\n/.test(s.slice(i + 1, i + 8))) continue;
+      if (/\p{L}/u.test(s[i - 1] ?? "") && /^[ \t]*\r?\n/.test(s.slice(i + 1, i + 8))) continue;
       ch = "-";
     }
     norm += ch;
