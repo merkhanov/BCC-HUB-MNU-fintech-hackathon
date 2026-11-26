@@ -315,31 +315,36 @@ export function renderReport(r: RunResult, p: Passport): string {
         : "Агент объединил находки, на которые отвечает один и тот же ответ, в один вопрос и расположил вопросы по важности. Каждый вопрос ссылается на находки и места документа, из которых он вырос.",
       "",
     );
-    const byCode = r.questions.filter((x) => x.by === "code");
-    if (byCode.length && !r.questionsFallback)
-      out.push(
-        `Вопросы ${byCode.length === 1 ? byCode[0]!.id : `с ${byCode[0]!.id} по ${byCode.at(-1)!.id}`} добавил код. Модель не включила эти находки ни в один вопрос, а каждая из них критичная или найдена правилом, поэтому без ответа автора её не исправить.`,
-      "",
-    );
-    out.push(
+    // Code-added questions are drafts from single findings; they follow the model's list in their own part so the
+    // merged questions with answer options stay first and short.
+    const split = !r.questionsFallback && r.questions.some((x) => x.by === "code") && r.questions.some((x) => x.by === "model");
+    const main = split ? r.questions.filter((x) => x.by === "model") : r.questions;
+    const extra = split ? r.questions.filter((x) => x.by === "code") : [];
+    const questionTable = (qs: typeof r.questions) =>
       table(
         ["№", "Кому", "Вопрос", "Место"],
-        r.questions.map((x) => [
-          x.critical ? `**${x.id}**` : x.id,
-          ADDRESSEE[x.addressee],
-          x.question,
-          formatPlaces(x.places),
-        ]),
-      ),
-      "",
-    );
-    for (const x of r.questions) {
-      out.push(`#### ${x.id}. ${ADDRESSEE[x.addressee]}${x.critical ? ", по критичному дефекту" : ""}${x.by === "code" && !r.questionsFallback ? ", вопрос добавил код" : ""}`, "");
-      out.push(`**${x.question}**`, "");
-      out.push(`- Почему важно: ${x.why}`);
-      if (x.options.length) out.push(`- Варианты ответа: ${formatOptions(x.options)}`);
-      out.push(`- Места: ${quotedPlaces(x.places)}`);
-      out.push(`- Из находок: ${x.sources.join("; ")}`, "");
+        qs.map((x) => [x.critical ? `**${x.id}**` : x.id, ADDRESSEE[x.addressee], x.question, formatPlaces(x.places)]),
+      );
+    const questionBlocks = (qs: typeof r.questions) => {
+      for (const x of qs) {
+        out.push(`#### ${x.id}. ${ADDRESSEE[x.addressee]}${x.critical ? ", по критичному дефекту" : ""}`, "");
+        out.push(`**${x.question}**`, "");
+        out.push(`- Почему важно: ${x.why}`);
+        if (x.options.length) out.push(`- Варианты ответа: ${formatOptions(x.options)}`);
+        out.push(`- Места: ${quotedPlaces(x.places)}`);
+        out.push(`- Из находок: ${x.sources.join("; ")}`, "");
+      }
+    };
+    out.push(questionTable(main), "");
+    questionBlocks(main);
+    if (extra.length) {
+      out.push("### Вопросы по остальным критичным находкам", "");
+      out.push(
+        `Эти вопросы (${extra.length}) добавил код. Модель не включила эти находки ни в один вопрос выше, а каждая из них критичная или найдена правилом, поэтому без ответа автора её не исправить. Вопрос взят из самой серьёзной находки по требованию или правилу.`,
+        "",
+      );
+      out.push(questionTable(extra), "");
+      questionBlocks(extra);
     }
   }
   if (r.answers.length) {
