@@ -54,6 +54,9 @@ export const PairsSchema = z.object({
     z.object({
       a: z.string().describe("id первого требования пары"),
       b: z.string().describe("id второго требования пары"),
+      check: z
+        .string()
+        .describe("Сначала проверка: какой случай ты разобрал или как посчитал пример по правилу, и что получилось. Одна-две фразы с числами"),
       conflict: z.boolean().describe("true, если есть конкретный случай, в котором два места требуют разного"),
       scenario: z.string().describe("Этот случай с исходными данными и событием; пусто, если conflict false"),
       severity: Severity,
@@ -214,6 +217,7 @@ export function pairsPrompt(docText: string, pairs: PairBrief[], answers: Answer
 - Если такой случай есть: conflict true, scenario описывает его одной или двумя фразами с числами, quotes содержит по дословной цитате из каждого места, затем problem, fix и question.
 - Если случая нет или ты не можешь назвать его конкретно: conflict false, остальные текстовые поля пустые. Разная подробность двух мест противоречием не считается.
 - Если у пары есть hint, начни с указанного в нём случая.
+- Поле check заполняй до решения: опиши разобранный случай или расчёт примера по правилу и его итог. Решение conflict должно следовать из check.
 - Верни ответ по каждой паре из списка, a и b без изменений.`,
     user: `Документ:\n<<<\n${docText}\n>>>${answersBlock(answers)}\n\nПары для проверки:\n${JSON.stringify(pairs, null, 1)}`,
   };
