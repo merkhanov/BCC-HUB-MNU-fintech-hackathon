@@ -24,7 +24,7 @@ README написан для человека, который будет под�
 
 | Что | Версия | Зачем |
 | --- | --- | --- |
-| [Bun](https://bun.sh) | 1.2 или новее, проверено на 1.4.2 | Запускает TypeScript без сборки, читает `.env`, ставит зависимости |
+| [Bun](https://bun.sh) | 1.2 или новее, проверено на 1.4.5 | Запускает TypeScript без сборки, читает `.env`, ставит зависимости |
 | git | любая | Агент пишет коммит в паспорт отчёта |
 | Ключ Google Gemini API | бесплатный тариф | Модель, которая проверяет требования |
 | Доступ в интернет | | Запросы к `generativelanguage.googleapis.com` |
@@ -34,6 +34,7 @@ Node.js не нужен. Bun ставится одной командой:
 ```bash
 curl -fsSL https://bun.sh/install | bash      # macOS, Linux
 powershell -c "irm bun.sh/install.ps1 | iex"   # Windows
+bun upgrade                                    # если Bun уже стоит
 ```
 
 ## 2. Быстрый старт
