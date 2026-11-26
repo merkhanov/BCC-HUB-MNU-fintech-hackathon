@@ -402,25 +402,29 @@ async function checkPairs(
     .filter(([a, b]) => !reported(a, b));
   if (pairs.length === 0) return [];
   const brief = (r: Requirement) => ({ id: idOf(r), doc_id: r.docId, section: r.section, quote: r.quote });
-  let out;
-  try {
-    out = await llm.json("pairs", pairsPrompt(doc.text, pairs.map(([a, b]) => ({ a: brief(a), b: brief(b), hint: pairHint(a, b) })), answers), PairsSchema, {
-      attempts: PAIR_ATTEMPTS,
-    });
-  } catch (e) {
-    log(`   сверка пар не удалась: ${errorText(e).slice(0, 200)}`);
-    return [];
-  }
+  const ask = async (step: string, list: (readonly [Requirement, Requirement])[]) => {
+    try {
+      const out = await llm.json(step, pairsPrompt(doc.text, list.map(([a, b]) => ({ a: brief(a), b: brief(b), hint: pairHint(a, b) })), answers), PairsSchema, {
+        attempts: PAIR_ATTEMPTS,
+      });
+      return out.pairs;
+    } catch (e) {
+      log(`   сверка пар не удалась: ${errorText(e).slice(0, 200)}`);
+      return [];
+    }
+  };
   const found: Omit<SetFinding, "id">[] = [];
-  for (const p of out.pairs) {
+  const accepted = new Set<string>();
+  const accept = (p: Awaited<ReturnType<typeof ask>>[number]) => {
     const a = byKey.get(p.a.trim());
     const b = byKey.get(p.b.trim());
-    if (!p.conflict || !p.scenario.trim() || !a || !b) continue;
+    if (!p.conflict || !p.scenario.trim() || !a || !b) return;
     const places = p.quotes.flatMap((q) => {
       const g = grounder.find(q);
       return g ? [{ quote: q, location: g.location }] : [];
     });
-    if (places.length < 2) continue;
+    if (places.length < 2) return;
+    accepted.add(`${idOf(a)}|${idOf(b)}`);
     found.push({
       criterion: "consistent",
       severity: p.severity,
@@ -432,7 +436,12 @@ async function checkPairs(
       critical: isCritical("consistent", p.severity),
       by: "model",
     });
-  }
+  };
+  for (const p of await ask("pairs", pairs)) accept(p);
+  // A second look at the pairs the first answer called clean, in reverse order. One answer on a small model flips
+  // between runs; taking the union of two answers keeps a contradiction that either of them saw.
+  const rest = pairs.filter(([a, b]) => !accepted.has(`${idOf(a)}|${idOf(b)}`)).reverse();
+  if (rest.length) for (const p of await ask("pairs-2", rest)) if (!accepted.has(`${p.a.trim()}|${p.b.trim()}`)) accept(p);
   log(`   сверка пар: проверено ${pairs.length}, противоречий ${found.length}`);
   return found;
 }
