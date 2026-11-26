@@ -6,7 +6,7 @@ import pkg from "../package.json";
 import { parseAnswers, renderQuestionsFile } from "./answers.ts";
 import { ConfigError, createLLM, errorText, isDailyQuota, isTransient } from "./llm.ts";
 import { InputError, loadDocument, SUPPORTED } from "./load.ts";
-import { type RunResult, runChecks } from "./pipeline.ts";
+import { assess, type RunResult, runChecks } from "./pipeline.ts";
 import type { Answer } from "./prompts.ts";
 import { ADDRESSEE, formatOptions, type Passport, renderReport } from "./report.ts";
 
@@ -25,6 +25,8 @@ const USAGE = `Агент проверки требований (ISO/IEC/IEEE 29
   --ask              После прогона задать уточняющие вопросы в терминале, сохранить
                      ответы и предложить повторную проверку с ними.
 
+  --json             В конце напечатать в stdout одну JSON-сводку: пути к файлам, итог,
+                     число нарушений и вопросы. Ошибка тоже печатается как JSON.
   --no-cache         Спросить модель заново, не беря ответы из .cache/llm. Новые ответы
                      всё равно сохраняются, чтобы прогон можно было продолжить после сбоя.
   -h, --help         Эта справка.
@@ -45,22 +47,38 @@ async function agentVersion(): Promise<string> {
 }
 
 const SHOW_QUESTIONS = 5;
+/** Set from argv before parsing, so even a usage error is printed as JSON. */
+const JSON_OUT = Bun.argv.includes("--json");
+
+function parseCli() {
+  try {
+    return parseArgs({
+      args: Bun.argv.slice(2),
+      options: {
+        help: { type: "boolean", short: "h" },
+        "no-cache": { type: "boolean" },
+        answers: { type: "string" },
+        ask: { type: "boolean" },
+        json: { type: "boolean" },
+      },
+      allowPositionals: true,
+    });
+  } catch (e) {
+    // parseArgs throws TypeError for an unknown flag or a flag without its value: that is a usage error.
+    const unknown = /Unknown option '([^']+)'/.exec(errorText(e))?.[1];
+    const what = unknown ? `неизвестный параметр ${unknown}` : errorText(e);
+    throw new InputError(`Неверные параметры: ${what}. Справка: bun start --help`);
+  }
+}
 
 async function main(): Promise<number> {
-  const { values, positionals } = parseArgs({
-    args: Bun.argv.slice(2),
-    options: {
-      help: { type: "boolean", short: "h" },
-      "no-cache": { type: "boolean" },
-      answers: { type: "string" },
-      ask: { type: "boolean" },
-    },
-    allowPositionals: true,
-  });
-  if (values.help || positionals.length === 0 || positionals.length > 2) {
+  const { values, positionals } = parseCli();
+  if (values.help || (positionals.length === 0 && !values.json)) {
     say(USAGE);
     return values.help ? 0 : 2;
   }
+  if (positionals.length === 0 || positionals.length > 2)
+    throw new InputError(`Нужны путь к файлу требований и, по желанию, путь к отчёту. Справка: bun start --help`);
 
   const input = positionals[0]!;
   const output = positionals[1] ?? join("reports", `${basename(input, extname(input))}.report.md`);
@@ -103,22 +121,43 @@ async function main(): Promise<number> {
     };
     await mkdir(dirname(output) || ".", { recursive: true });
     await Bun.write(output, renderReport(result, passport));
-    await Bun.write(`${base}.json`, JSON.stringify({ passport, ...result }, null, 2));
+    await Bun.write(`${base}.json`, JSON.stringify({ passport, verdict: assess(result), ...result }, null, 2));
     const rerun = `bun start ${input} ${output} --answers ${questionsFile}`;
     await Bun.write(questionsFile, renderQuestionsFile(result.title, result.questions, rerun));
     summary(result, output);
     return { result, rerun };
   };
 
-  const { result, rerun } = await once(answers, values.answers);
+  const first = await once(answers, values.answers);
+  const { rerun } = first;
+  let { result } = first;
   if (!values.ask) {
     if (result.questions.length) say(`Вопросы к автору: ${questionsFile}. Ответы можно передать так: ${rerun}`);
-    return 0;
+  } else {
+    // Answers reach every prompt except the extraction, so a re-check repeats all other steps of this run.
+    const callsPerRun = Math.max(1, llm.calls + llm.cached - 1);
+    if (await ask(result, questionsFile, rerun, callsPerRun))
+      ({ result } = await once(parseAnswers(await Bun.file(questionsFile).text()), questionsFile));
   }
-  // Answers reach every prompt except the extraction, so a re-check repeats all other steps of this run.
-  const callsPerRun = Math.max(1, llm.calls + llm.cached - 1);
-  if (await ask(result, questionsFile, rerun, callsPerRun))
-    await once(parseAnswers(await Bun.file(questionsFile).text()), questionsFile);
+  if (values.json) {
+    const summary = {
+      ok: true,
+      report: output,
+      json: `${base}.json`,
+      questionsFile,
+      rerun,
+      ...assess(result),
+      rejected: result.rejected.length,
+      questions: result.questions.map((q) => ({
+        id: q.id,
+        addressee: q.addressee,
+        critical: q.critical,
+        question: q.question,
+        options: q.options,
+      })),
+    };
+    process.stdout.write(`${JSON.stringify(summary)}\n`);
+  }
   return 0;
 }
 
@@ -171,7 +210,10 @@ async function ask(result: RunResult, questionsFile: string, rerun: string, call
 main().then(
   (code) => process.exit(code),
   (e) => {
-    if (e instanceof InputError || e instanceof ConfigError) {
+    const usage = e instanceof InputError || e instanceof ConfigError;
+    const code = usage ? 2 : 1;
+    if (JSON_OUT) process.stdout.write(`${JSON.stringify({ ok: false, exitCode: code, error: usage ? e.message : errorText(e) })}\n`);
+    if (usage) {
       say(`Ошибка: ${e.message}`);
       process.exit(2);
     }

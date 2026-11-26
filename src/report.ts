@@ -1,6 +1,6 @@
 import { INDIVIDUAL, INDIVIDUAL_INFO, type IndividualCriterion, SET, SET_INFO, type SetCriterion } from "./criteria.ts";
 import { formatLocation, type Location } from "./load.ts";
-import { bySeverity, type RunResult, reqLabel, type Severity } from "./pipeline.ts";
+import { assess, bySeverity, type RunResult, reqLabel, type Severity, type Verdict } from "./pipeline.ts";
 import type { Addressee } from "./prompts.ts";
 
 export interface Passport {
@@ -280,7 +280,7 @@ export function renderReport(r: RunResult, p: Passport): string {
 
   // 6. Verdict
   out.push("## 6. Итог", "");
-  out.push(verdict(r.requirements.length, total, allCritical.length, unchecked), "");
+  out.push(verdictText(assess(r)), "");
   if (allCritical.length || total) {
     out.push("Что исправить в первую очередь:", "");
     const top = (allCritical.length ? allCritical : [...r.findings, ...r.setFindings]).sort(bySeverity).slice(0, TOP_FIXES);
@@ -368,17 +368,20 @@ function modelLine(p: Passport): string {
   return [...byModel].map(([m, steps]) => `${m} (шаги: ${steps.join(", ")})`).join("; ");
 }
 
-function verdict(reqs: number, total: number, critical: number, unchecked: string[]): string {
-  if (reqs === 0) return "**Нет.** Агент не выделил в документе ни одного требования.";
-  const gap = unchecked.length
-    ? ` Кроме того, модель не проверила требования ${unchecked.join(", ")}, по ним вывода нет.`
-    : "";
-  if (critical > 0)
-    return `**Нет, начинать разработку и тестирование по документу в текущем виде нельзя.** Найдено критичных дефектов: ${critical}. По затронутым требованиям нельзя однозначно реализовать функцию или написать тест с ожидаемым результатом. Сначала исправьте пункты ниже и повторите проверку.${gap}`;
-  if (unchecked.length)
-    return `**Нет, проверка неполная.** Модель не вернула оценку требований ${unchecked.join(", ")}. Повторите прогон, прежде чем принимать решение.`;
-  if (total > 0)
-    return `**Можно, с оговорками.** Критичных дефектов нет, но найдено ${total} некритичных нарушений. Их стоит исправить до приёмки.`;
-  return "**Да.** Нарушений не найдено, документ можно передавать в разработку и тестирование.";
+function verdictText(v: Verdict): string {
+  if (v.requirements === 0) return "**Нет.** Агент не выделил в документе ни одного требования.";
+  const unchecked = v.unchecked.join(", ");
+  switch (v.decision) {
+    case "no": {
+      const gap = unchecked ? ` Кроме того, модель не проверила требования ${unchecked}, по ним вывода нет.` : "";
+      return `**Нет, начинать разработку и тестирование по документу в текущем виде нельзя.** Найдено критичных дефектов: ${v.critical}. По затронутым требованиям нельзя однозначно реализовать функцию или написать тест с ожидаемым результатом. Сначала исправьте пункты ниже и повторите проверку.${gap}`;
+    }
+    case "incomplete":
+      return `**Нет, проверка неполная.** Модель не вернула оценку требований ${unchecked}. Повторите прогон, прежде чем принимать решение.`;
+    case "with_reservations":
+      return `**Можно, с оговорками.** Критичных дефектов нет, но найдено ${v.violations} некритичных нарушений. Их стоит исправить до приёмки.`;
+    case "yes":
+      return "**Да.** Нарушений не найдено, документ можно передавать в разработку и тестирование.";
+  }
 }
 

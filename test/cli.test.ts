@@ -142,3 +142,38 @@ test("the author's answers reach the check and set prompts, and the questions fi
   expect(setPrompt("doc", [], answers).user).toContain("Вопрос: Сколько?");
   expect(checkPrompt("doc", batch).user).not.toContain("Уточнения автора");
 });
+
+test("--json prints one summary object to stdout and the JSON file carries the verdict", async () => {
+  const out = join(tmp, "json.report.md");
+  const res = run(["test/fixtures/sample.md", out, "--json"], { LLM_PROVIDER: "fixture", FIXTURE_DIR: "test/fixtures/llm" });
+  expect(res.exitCode).toBe(0);
+  const lines = res.stdout.toString().trim().split("\n");
+  expect(lines).toHaveLength(1);
+  const summary = JSON.parse(lines[0]!);
+  expect(summary).toMatchObject({
+    ok: true,
+    report: out,
+    questionsFile: out.replace(/\.md$/, ".questions.md"),
+    decision: "no",
+    canStart: false,
+    requirements: 3,
+    violations: 4,
+    critical: 3,
+    unchecked: ["ТР-01"],
+    rejected: 3,
+  });
+  expect(summary.questions[0]).toMatchObject({ id: "В-01", addressee: "qa", critical: true });
+
+  const file = await Bun.file(out.replace(/\.md$/, ".json")).json();
+  expect(file.verdict).toEqual({ decision: "no", canStart: false, requirements: 3, violations: 4, critical: 3, unchecked: ["ТР-01"] });
+});
+
+test("an unknown flag is a usage error with code 2, also as JSON", () => {
+  const res = run(["test/fixtures/sample.md", "--bogus"]);
+  expect(res.exitCode).toBe(2);
+  expect(res.stderr.toString()).toContain("неизвестный параметр --bogus");
+
+  const json = run(["missing.md", "--json"]);
+  expect(json.exitCode).toBe(2);
+  expect(JSON.parse(json.stdout.toString())).toEqual({ ok: false, exitCode: 2, error: "Файл не найден: missing.md" });
+});

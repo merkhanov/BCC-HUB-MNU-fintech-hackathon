@@ -99,6 +99,43 @@ const SEVERITY_ORDER: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 /** Within one severity, contradictions block work first, then untestable, ambiguous and incomplete items. */
 const CRITERION_ORDER: Record<string, number> = { consistent: 0, correct: 1, verifiable: 2, unambiguous: 3, complete: 4 };
 
+/**
+ * Can development and testing start from this document? «no» when nothing was extracted or a critical
+ * defect was found, «incomplete» when the model left requirements unchecked, «with_reservations» when only
+ * non-critical violations remain. The report's section 6 and the JSON both use this one decision.
+ */
+export interface Verdict {
+  decision: "yes" | "with_reservations" | "incomplete" | "no";
+  canStart: boolean;
+  requirements: number;
+  violations: number;
+  critical: number;
+  unchecked: string[];
+}
+
+export function assess(r: Pick<RunResult, "requirements" | "findings" | "setFindings">): Verdict {
+  const requirements = r.requirements.length;
+  const violations = r.findings.length + r.setFindings.length;
+  const critical = r.findings.filter((f) => f.critical).length + r.setFindings.filter((f) => f.critical).length;
+  const unchecked = r.requirements.filter((x) => !x.checked).map((x) => x.id);
+  const decision: Verdict["decision"] =
+    requirements === 0 || critical > 0
+      ? "no"
+      : unchecked.length
+        ? "incomplete"
+        : violations > 0
+          ? "with_reservations"
+          : "yes";
+  return {
+    decision,
+    canStart: decision === "yes" || decision === "with_reservations",
+    requirements,
+    violations,
+    critical,
+    unchecked,
+  };
+}
+
 export function bySeverity<T extends { severity: Severity; critical: boolean; criterion?: string }>(a: T, b: T): number {
   return (
     Number(b.critical) - Number(a.critical) ||
