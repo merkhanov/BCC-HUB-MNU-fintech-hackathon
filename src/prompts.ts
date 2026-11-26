@@ -141,9 +141,8 @@ ${describeCriteria(INDIVIDUAL_INFO)}
   };
 }
 
-/** What code already prepared for the set step: pairs to compare and defects its rules found. */
+/** Defects the code rules already found, so the set step does not repeat them. */
 export interface SetHints {
-  pairs: [string, string][];
   foundByCode: string[];
 }
 
@@ -151,11 +150,8 @@ export function setPrompt(
   docText: string,
   reqs: { id: string; doc_id: string | null; summary: string }[],
   answers: Answer[] = [],
-  hints: SetHints = { pairs: [], foundByCode: [] },
+  hints: SetHints = { foundByCode: [] },
 ): Prompt {
-  const pairs = hints.pairs.length
-    ? `\n\nПары для сверки (подобрал код по общим терминам):\n${hints.pairs.map(([a, b]) => `- ${a} и ${b}`).join("\n")}`
-    : "";
   const known = hints.foundByCode.length
     ? `\n\nУже найдено кодом, не повторяй:\n${hints.foundByCode.map((x) => `- ${x}`).join("\n")}`
     : "";
@@ -174,9 +170,8 @@ ${describeCriteria(SET_INFO)}
 - Ищи пропущенные сценарии и пустые разделы: ошибки, граничные случаи, роли, состояния, откат, безопасность, версия документа, согласование.
 - Каждая находка ссылается хотя бы на одно место документа цитатой. Если речь о пустом разделе, цитируй его заголовок или заполнитель.
 - req_ids — значения поля id затронутых требований из списка (например «R3»), может быть пустым для пропусков.
-- Сначала проверь весь документ по всем критериям и правилам выше. Список «Пары для сверки» эту проверку не заменяет, а добавляет к ней: после неё проверь каждую пару отдельно, требуют ли два места разного поведения в одном и том же случае. Для пары с критерием приёмки посчитай ожидаемый результат по правилу из пары. Противоречие оформи находкой consistent с цитатами обоих мест. Пару без противоречия не упоминай.
 - Дефекты из списка «Уже найдено кодом» в отчёте уже есть, не повторяй их. Все остальные дефекты набора ищи как обычно.`,
-    user: `Документ:\n<<<\n${docText}\n>>>${answersBlock(answers)}\n\nНарезка требований:\n${JSON.stringify(reqs, null, 1)}${pairs}${known}`,
+    user: `Документ:\n<<<\n${docText}\n>>>${answersBlock(answers)}\n\nНарезка требований:\n${JSON.stringify(reqs, null, 1)}${known}`,
   };
 }
 

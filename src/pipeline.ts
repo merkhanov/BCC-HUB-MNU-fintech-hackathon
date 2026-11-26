@@ -1,7 +1,7 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
 import { errorText, type LLM } from "./llm.ts";
-import { type CodeFinding, codeChecks, relatedPairs } from "./rules.ts";
+import { type CodeFinding, codeChecks } from "./rules.ts";
 import type { Location, SourceDoc } from "./load.ts";
 import {
   type Addressee,
@@ -248,10 +248,7 @@ export async function runChecks(
       doc.text,
       requirements.map((r) => ({ id: key(r), doc_id: r.docId, summary: r.summary })),
       answers,
-      {
-        pairs: relatedPairs(requirements.map((r) => ({ id: key(r), quote: r.quote, type: r.type }))),
-        foundByCode: code.map((c) => c.problem),
-      },
+      { foundByCode: code.map((c) => c.problem) },
     ),
     SetSchema,
   );
