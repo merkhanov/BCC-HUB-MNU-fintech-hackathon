@@ -4,11 +4,11 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import pkg from "../package.json";
 import { parseAnswers, renderQuestionsFile } from "./answers.ts";
-import { ConfigError, createLLM, errorText, isDailyQuota, isTransient, type LLM } from "./llm.ts";
+import { ConfigError, createLLM, errorText, isDailyQuota, isTransient } from "./llm.ts";
 import { InputError, loadDocument, SUPPORTED } from "./load.ts";
 import { type RunResult, runChecks } from "./pipeline.ts";
 import type { Answer } from "./prompts.ts";
-import { ADDRESSEE, type Passport, renderReport } from "./report.ts";
+import { ADDRESSEE, formatOptions, type Passport, renderReport } from "./report.ts";
 
 const USAGE = `Агент проверки требований (ISO/IEC/IEEE 29148:2018, IEEE 830-1998)
 
@@ -75,17 +75,17 @@ async function main(): Promise<number> {
     if (!(await file.exists())) throw new InputError(`Файл ответов не найден: ${values.answers}`);
     answers = parseAnswers(await file.text());
   }
-  const log = say;
-  const llm = createLLM(process.env, { cacheDir: join(ROOT, ".cache", "llm"), readCache: !values["no-cache"], log });
+  const version = await agentVersion(); // read before the run writes any files
+  const llm = createLLM(process.env, { cacheDir: join(ROOT, ".cache", "llm"), readCache: !values["no-cache"], log: say });
   say(`Документ: ${input} (${doc.format}, ${doc.text.length} символов). Модель: ${llm.model}`);
   if (answers.length) say(`Ответы автора: ${answers.length} из ${values.answers}`);
 
-  const once = async (answers: Answer[], answersFile?: string) => {
+  const once = async (given: Answer[], answersFile?: string) => {
     const startedAt = new Date();
     const [calls0, cached0] = [llm.calls, llm.cached];
     // The questions file is rewritten below, so keep the author's answers in a copy of their own.
     if (answersFile && resolve(answersFile) !== resolve(answersCopy)) await Bun.write(answersCopy, Bun.file(answersFile));
-    const result = await runChecks(doc, llm, log, answers);
+    const result = await runChecks(doc, llm, say, given);
     const passport: Passport = {
       file: input,
       format: doc.format,
@@ -96,7 +96,7 @@ async function main(): Promise<number> {
       provider: llm.provider,
       model: llm.model,
       stepModels: { ...llm.stepModels },
-      agentVersion: await agentVersion(),
+      agentVersion: version,
       calls: llm.calls - calls0,
       cached: llm.cached - cached0,
       answersFile: answersFile && answersCopy,
@@ -115,7 +115,11 @@ async function main(): Promise<number> {
     if (result.questions.length) say(`Вопросы к автору: ${questionsFile}. Ответы можно передать так: ${rerun}`);
     return 0;
   }
-  return ask(result, questionsFile, rerun, llm, once);
+  // Answers reach every prompt except the extraction, so a re-check repeats all other steps of this run.
+  const callsPerRun = Math.max(1, llm.calls + llm.cached - 1);
+  if (await ask(result, questionsFile, rerun, callsPerRun))
+    await once(parseAnswers(await Bun.file(questionsFile).text()), questionsFile);
+  return 0;
 }
 
 function summary(result: RunResult, output: string) {
@@ -130,24 +134,21 @@ function summary(result: RunResult, output: string) {
   say("");
 }
 
-/** Ask the questions in the terminal, save the answers, and offer a re-check that uses them. */
-async function ask(
-  result: RunResult,
-  questionsFile: string,
-  rerun: string,
-  llm: LLM,
-  once: (answers: Answer[], answersFile?: string) => Promise<unknown>,
-): Promise<number> {
-  if (result.questions.length === 0) return 0;
+/**
+ * Ask the questions in the terminal and save the answers into the questions file.
+ * Returns true when the author wants a re-check with those answers.
+ */
+async function ask(result: RunResult, questionsFile: string, rerun: string, callsPerRun: number): Promise<boolean> {
+  if (result.questions.length === 0) return false;
   if (!process.stdin.isTTY) {
     say("--ask работает только в интерактивном терминале. Ответьте в файле: " + questionsFile);
-    return 0;
+    return false;
   }
   say("Ответьте на вопросы. Enter пропускает вопрос, «q» завершает опрос.\n");
   const filled = new Map<string, string>();
   for (const q of result.questions) {
     say(`${q.id}. ${ADDRESSEE[q.addressee]}: ${q.question}`);
-    if (q.options.length) say(`   Варианты: ${q.options.map((o, i) => `${i + 1}) ${o}`).join("; ")}`);
+    if (q.options.length) say(`   Варианты: ${formatOptions(q.options)}`);
     const raw = (prompt("   Ответ:") ?? "").trim();
     if (raw.toLowerCase() === "q") break;
     if (!raw) continue;
@@ -158,16 +159,13 @@ async function ask(
   await Bun.write(questionsFile, renderQuestionsFile(result.title, result.questions, rerun, filled));
   if (filled.size === 0) {
     say("Ответов нет, повторная проверка не нужна.");
-    return 0;
+    return false;
   }
   say(`\nОтветы сохранены в ${questionsFile} (${filled.size}).`);
-  const again = (prompt(`Проверить документ заново с ответами? Это ещё ~${llm.calls || 10} запросов к модели [y/N]`) ?? "").trim();
-  if (!/^(y|д|yes|да)$/i.test(again)) {
-    say(`Повторить позже: ${rerun}`);
-    return 0;
-  }
-  await once(parseAnswers(await Bun.file(questionsFile).text()), questionsFile);
-  return 0;
+  const again = (prompt(`Проверить документ заново с ответами? Это ещё ~${callsPerRun} запросов к модели [y/N]`) ?? "").trim();
+  if (/^(y|д|yes|да)$/i.test(again)) return true;
+  say(`Повторить позже: ${rerun}`);
+  return false;
 }
 
 main().then(

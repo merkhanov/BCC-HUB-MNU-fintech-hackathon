@@ -1,7 +1,7 @@
-import { InputError, formatLocation } from "./load.ts";
+import { InputError } from "./load.ts";
 import type { Question } from "./pipeline.ts";
 import type { Answer } from "./prompts.ts";
-import { ADDRESSEE } from "./report.ts";
+import { ADDRESSEE, formatOptions, formatPlaces } from "./report.ts";
 
 /**
  * The questions file is plain Markdown with an empty «Ответ:» line under each question. The author fills
@@ -27,8 +27,8 @@ export function renderQuestionsFile(
     out.push(`## ${q.id}. ${ADDRESSEE[q.addressee]}${q.critical ? ", по критичному дефекту" : ""}`, "");
     out.push(`Вопрос: ${q.question}`, "");
     out.push(`Почему важно: ${q.why}`, "");
-    if (q.options.length) out.push(`Варианты: ${q.options.map((o, i) => `${i + 1}) ${o}`).join("; ")}`, "");
-    out.push(`Место: ${q.places.map((p) => formatLocation(p.location)).join("; ")}`, "");
+    if (q.options.length) out.push(`Варианты: ${formatOptions(q.options)}`, "");
+    out.push(`Место: ${formatPlaces(q.places)}`, "");
     out.push(`Ответ: ${filled.get(q.id) ?? ""}`.trimEnd(), "");
   }
   return out.join("\n");

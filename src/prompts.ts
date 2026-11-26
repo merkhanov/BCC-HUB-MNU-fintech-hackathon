@@ -67,7 +67,6 @@ export const QuestionsSchema = z.object({
 export type Extracted = z.infer<typeof ExtractSchema>;
 export type CheckResult = z.infer<typeof CheckSchema>;
 export type SetResult = z.infer<typeof SetSchema>;
-export type QuestionsResult = z.infer<typeof QuestionsSchema>;
 
 /** Answers the author gave to an earlier run's questions. */
 export interface Answer {

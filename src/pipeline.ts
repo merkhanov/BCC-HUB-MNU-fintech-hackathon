@@ -1,6 +1,6 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
-import type { LLM } from "./llm.ts";
+import { errorText, type LLM } from "./llm.ts";
 import type { Location, SourceDoc } from "./load.ts";
 import {
   type Addressee,
@@ -84,6 +84,7 @@ export interface RunResult {
   title: string;
   requirements: Requirement[];
   findings: Finding[];
+  /** Sorted by severity and numbered Н-01.. in that order; the report keeps this order. */
   setFindings: SetFinding[];
   questions: Question[];
   /** true when the questions step failed and the list was built from the findings' own questions. */
@@ -199,7 +200,7 @@ export async function runChecks(
     ),
     SetSchema,
   );
-  let setFindings: SetFinding[] = [];
+  const unnumbered: Omit<SetFinding, "id">[] = [];
   for (const f of setOut.findings) {
     const places = f.quotes.flatMap((q) => {
       const g = grounder.find(q);
@@ -209,8 +210,7 @@ export async function runChecks(
       rejected.push({ scope: "набор", criterion: f.criterion, quotes: f.quotes, problem: f.problem });
       continue;
     }
-    setFindings.push({
-      id: "",
+    unnumbered.push({
       criterion: f.criterion,
       severity: f.severity,
       reqIds: [...new Set(f.req_ids.flatMap((k) => byKey(k)?.id ?? []))],
@@ -221,7 +221,9 @@ export async function runChecks(
       critical: isCritical(f.criterion, f.severity),
     });
   }
-  setFindings = setFindings.sort(bySeverity).map((f, i) => ({ ...f, id: `Н-${String(i + 1).padStart(2, "0")}` }));
+  const setFindings: SetFinding[] = unnumbered
+    .sort(bySeverity)
+    .map((f, i) => ({ id: `Н-${String(i + 1).padStart(2, "0")}`, ...f }));
 
   log("4/4 Уточняющие вопросы автору");
   const { questions, fallback } = await askQuestions(doc.text, llm, log, requirements, findings, setFindings);
@@ -239,7 +241,24 @@ export async function runChecks(
   };
 }
 
-type AnyFinding = (Finding & { kind: "req" }) | (SetFinding & { kind: "set" });
+/** «ТР-12 (Ф-2)» when the document numbered the requirement, otherwise «ТР-12». */
+export function reqLabel(id: string, docId: string | null | undefined): string {
+  return docId ? `${id} (${docId})` : id;
+}
+
+/** Keep the first item for each key, in order. */
+function uniqueBy<T>(items: T[], key: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((x) => {
+    const k = key(x);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/** A finding of either kind with the F1../S1.. key the questions step cites it by. */
+type AnyFinding = ((Finding & { kind: "req" }) | (SetFinding & { kind: "set" })) & { key: string };
 
 /**
  * One request turns the findings into a deduplicated, prioritized list of questions. The model only groups and
@@ -255,22 +274,19 @@ async function askQuestions(
   setFindings: SetFinding[],
 ): Promise<{ questions: Question[]; fallback: boolean }> {
   const all: AnyFinding[] = [
-    ...findings.map((f) => ({ ...f, kind: "req" as const })),
-    ...setFindings.map((f) => ({ ...f, kind: "set" as const })),
+    ...findings.map((f, i) => ({ ...f, kind: "req" as const, key: `F${i + 1}` })),
+    ...setFindings.map((f, i) => ({ ...f, kind: "set" as const, key: `S${i + 1}` })),
   ];
   if (all.length === 0) return { questions: [], fallback: false };
 
   const docIdOf = new Map(requirements.map((r) => [r.id, r.docId]));
   const label = (f: AnyFinding) => {
     if (f.kind === "set") return f.id;
-    const docId = docIdOf.get(f.reqId);
-    return `${f.reqId}${docId ? ` (${docId})` : ""}, ${INDIVIDUAL_INFO[f.criterion].name}`;
+    return `${reqLabel(f.reqId, docIdOf.get(f.reqId))}, ${INDIVIDUAL_INFO[f.criterion].name}`;
   };
   const places = (f: AnyFinding) => (f.kind === "set" ? f.places : [{ quote: f.quote, location: f.location }]);
   const reqIdsOf = (f: AnyFinding) => (f.kind === "set" ? f.reqIds : [f.reqId]);
-  const keyOf = new Map<string, AnyFinding>();
-  findings.forEach((f, i) => keyOf.set(`F${i + 1}`, all[i]!));
-  setFindings.forEach((f, i) => keyOf.set(`S${i + 1}`, all[findings.length + i]!));
+  const keyOf = new Map(all.map((f) => [f.key, f]));
 
   const build = (
     raw: { addressee: Addressee; question: string; why: string; options: string[] },
@@ -278,20 +294,13 @@ async function askQuestions(
   ): Omit<Question, "id"> => {
     const sorted = [...sources].sort(bySeverity);
     const top = sorted[0]!;
-    const seen = new Set<string>();
     return {
       ...raw,
       critical: sorted.some((f) => f.critical),
       severity: top.severity,
       sources: sorted.map(label),
       reqIds: [...new Set(sorted.flatMap(reqIdsOf))],
-      places: sorted
-        .flatMap(places)
-        .filter((p) => {
-          const k = `${p.location.line}:${p.location.page ?? 0}`;
-          return seen.has(k) ? false : (seen.add(k), true);
-        })
-        .slice(0, 3),
+      places: uniqueBy(sorted.flatMap(places), (p) => `${p.location.line}:${p.location.page ?? 0}`).slice(0, 3),
     };
   };
   const number = (qs: Omit<Question, "id">[]) =>
@@ -300,8 +309,8 @@ async function askQuestions(
       .slice(0, MAX_QUESTIONS)
       .map((q, i) => ({ id: `В-${String(i + 1).padStart(2, "0")}`, ...q }));
 
-  const briefs: FindingBrief[] = [...keyOf].map(([id, f]) => ({
-    id,
+  const briefs: FindingBrief[] = all.map((f) => ({
+    id: f.key,
     where: label(f),
     criterion: f.criterion,
     severity: f.severity,
@@ -326,17 +335,12 @@ async function askQuestions(
     if (built.length > 0) return { questions: number(built), fallback: false };
     log("   модель не вернула ни одного вопроса со ссылкой на находки");
   } catch (e) {
-    log(`   шаг вопросов не удался: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`);
+    log(`   шаг вопросов не удался: ${errorText(e).slice(0, 200)}`);
   }
-  const seen = new Set<string>();
-  const own = all
-    .filter((f) => f.critical && f.question.trim())
-    .sort(bySeverity)
-    .filter((f) => {
-      const k = f.question.trim().toLowerCase();
-      return seen.has(k) ? false : (seen.add(k), true);
-    })
-    .map((f) => build({ addressee: "analyst", question: f.question, why: f.problem, options: [] }, [f]));
+  const own = uniqueBy(
+    all.filter((f) => f.critical && f.question.trim()).sort(bySeverity),
+    (f) => f.question.trim().toLowerCase(),
+  ).map((f) => build({ addressee: "analyst", question: f.question, why: f.problem, options: [] }, [f]));
   return { questions: number(own), fallback: true };
 }
 

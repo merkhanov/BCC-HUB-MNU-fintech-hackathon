@@ -1,6 +1,6 @@
 import { INDIVIDUAL, INDIVIDUAL_INFO, type IndividualCriterion, SET, SET_INFO, type SetCriterion } from "./criteria.ts";
-import { formatLocation } from "./load.ts";
-import { bySeverity, type RunResult, type Severity } from "./pipeline.ts";
+import { formatLocation, type Location } from "./load.ts";
+import { bySeverity, type RunResult, reqLabel, type Severity } from "./pipeline.ts";
 import type { Addressee } from "./prompts.ts";
 
 export interface Passport {
@@ -50,6 +50,13 @@ function table(head: string[], rows: (string | number | null | undefined)[][]): 
 
 const q = (s: string) => `«${s.replace(/\s+/g, " ").trim()}»`;
 
+type Place = { quote: string; location: Location };
+/** «1) да; 2) нет». */
+export const formatOptions = (options: string[]) => options.map((o, i) => `${i + 1}) ${o}`).join("; ");
+/** «строка 12; строка 40». */
+export const formatPlaces = (places: Place[]) => places.map((pl) => formatLocation(pl.location)).join("; ");
+const quotedPlaces = (places: Place[]) => places.map((pl) => `${q(pl.quote)} (${formatLocation(pl.location)})`).join("; ");
+
 export const ADDRESSEE: Record<Addressee, string> = {
   business: "Бизнес-заказчику",
   analyst: "Аналитику",
@@ -69,13 +76,9 @@ function formatDate(d: Date): string {
 
 export function renderReport(r: RunResult, p: Passport): string {
   const reqById = new Map(r.requirements.map((x) => [x.id, x]));
-  const label = (id: string) => {
-    const req = reqById.get(id);
-    return req?.docId ? `${id} (${req.docId})` : id;
-  };
+  const label = (id: string) => reqLabel(id, reqById.get(id)?.docId);
   const findingsOf = (id: string) => r.findings.filter((f) => f.reqId === id).sort(bySeverity);
   const allCritical = [...r.findings.filter((f) => f.critical), ...r.setFindings.filter((f) => f.critical)];
-  const setSorted = [...r.setFindings].sort(bySeverity);
 
   const out: string[] = [];
   out.push(`# Отчёт о проверке требований`, "", `**Документ:** ${r.title}`, "");
@@ -201,9 +204,10 @@ export function renderReport(r: RunResult, p: Passport): string {
     ),
     "",
   );
-  for (const f of setSorted) {
+  // The pipeline already sorted the set findings by severity and numbered them in that order.
+  for (const f of r.setFindings) {
     out.push(`#### ${f.id}. ${SET_INFO[f.criterion].name}, ${SEVERITY[f.severity]}${f.critical ? ", критично" : ""}`, "");
-    out.push(`- Места: ${f.places.map((pl) => `${q(pl.quote)} (${formatLocation(pl.location)})`).join("; ")}.`);
+    out.push(`- Места: ${quotedPlaces(f.places)}.`);
     if (f.reqIds.length) out.push(`- Требования: ${f.reqIds.map(label).join(", ")}.`);
     out.push(`- Нарушение: ${f.problem}`, `- Как исправить: ${f.fix}`, `- Вопрос автору: ${f.question}`, "");
   }
@@ -266,7 +270,7 @@ export function renderReport(r: RunResult, p: Passport): string {
             : [
                 `${f.id} (набор)`,
                 SET_INFO[f.criterion].name,
-                f.places.map((pl) => formatLocation(pl.location)).join("; "),
+                formatPlaces(f.places),
                 f.problem,
               ],
         ),
@@ -312,7 +316,7 @@ export function renderReport(r: RunResult, p: Passport): string {
           x.critical ? `**${x.id}**` : x.id,
           ADDRESSEE[x.addressee],
           x.question,
-          x.places.map((pl) => formatLocation(pl.location)).join("; "),
+          formatPlaces(x.places),
         ]),
       ),
       "",
@@ -321,8 +325,8 @@ export function renderReport(r: RunResult, p: Passport): string {
       out.push(`#### ${x.id}. ${ADDRESSEE[x.addressee]}${x.critical ? ", по критичному дефекту" : ""}`, "");
       out.push(`**${x.question}**`, "");
       out.push(`- Почему важно: ${x.why}`);
-      if (x.options.length) out.push(`- Варианты ответа: ${x.options.map((o, i) => `${i + 1}) ${o}`).join("; ")}`);
-      out.push(`- Места: ${x.places.map((pl) => `${q(pl.quote)} (${formatLocation(pl.location)})`).join("; ")}`);
+      if (x.options.length) out.push(`- Варианты ответа: ${formatOptions(x.options)}`);
+      out.push(`- Места: ${quotedPlaces(x.places)}`);
       out.push(`- Из находок: ${x.sources.join("; ")}`, "");
     }
   }
