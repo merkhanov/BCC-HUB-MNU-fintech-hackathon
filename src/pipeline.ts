@@ -1,7 +1,7 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
 import { errorText, type LLM } from "./llm.ts";
-import { codeChecks, relatedPairs } from "./rules.ts";
+import { type CodeFinding, codeChecks, relatedPairs } from "./rules.ts";
 import type { Location, SourceDoc } from "./load.ts";
 import {
   type Addressee,
@@ -239,6 +239,9 @@ export async function runChecks(
   if (unchecked.length) log(`   не проверены: ${unchecked.map((r) => r.id).join(", ")}`);
 
   log("3/4 Проверка набора требований");
+  // Code findings the step 2 reviewers missed go into the set prompt as already found, so the model spends its
+  // attention elsewhere; only what survives both steps is added to the report.
+  const code = notYetFound(groundCode(doc, grounder), asModel(findings));
   const setOut = await llm.json(
     "set",
     setPrompt(
@@ -247,7 +250,7 @@ export async function runChecks(
       answers,
       {
         pairs: relatedPairs(requirements.map((r) => ({ id: key(r), quote: r.quote, type: r.type }))),
-        foundByCode: codeChecks(doc.text).map((c) => c.problem),
+        foundByCode: code.map((c) => c.problem),
       },
     ),
     SetSchema,
@@ -274,7 +277,9 @@ export async function runChecks(
       by: "model",
     });
   }
-  addCodeFindings(doc, grounder, requirements, findings, unnumbered, log);
+  const added = notYetFound(code, asModel(unnumbered));
+  unnumbered.push(...added.map((c) => toSetFinding(c, requirements)));
+  if (added.length) log(`   правила в коде добавили находок: ${added.length}`);
   const setFindings: SetFinding[] = unnumbered
     .sort(bySeverity)
     .map((f, i) => ({ id: `Н-${String(i + 1).padStart(2, "0")}`, ...f }));
@@ -315,48 +320,42 @@ function uniqueBy<T>(items: T[], key: (item: T) => string): T[] {
 const overlaps = (a: Location, b: Location) =>
   (a.page ?? 0) === (b.page ?? 0) && a.line <= b.endLine && b.line <= a.endLine;
 
-/**
- * Add the findings of the code rules that the model did not already make. A model finding counts as the same
- * defect when it sits on an overlapping line and its text names the rule's topic.
- */
-function addCodeFindings(
-  doc: SourceDoc,
-  grounder: Grounder,
-  requirements: Requirement[],
-  findings: Finding[],
-  setFindings: Omit<SetFinding, "id">[],
-  log: (msg: string) => void,
-) {
-  const model = [
-    ...findings.map((f) => ({ at: [f.location], text: `${f.problem} ${f.fix}` })),
-    ...setFindings.map((f) => ({ at: f.places.map((p) => p.location), text: `${f.problem} ${f.fix}` })),
-  ];
-  let added = 0;
-  let known = 0;
-  for (const c of codeChecks(doc.text)) {
+type GroundedCode = CodeFinding & { places: { quote: string; location: Location }[] };
+
+/** Code findings with their places in the document; a finding whose quotes are all missing is dropped. */
+function groundCode(doc: SourceDoc, grounder: Grounder): GroundedCode[] {
+  return codeChecks(doc.text).flatMap((c) => {
     const places = c.quotes.flatMap((q) => {
       const g = grounder.find(q);
       return g ? [{ quote: q, location: g.location }] : [];
     });
-    if (places.length === 0) continue;
-    if (model.some((m) => c.topic.test(m.text) && m.at.some((l) => places.some((p) => overlaps(l, p.location))))) {
-      known++;
-      continue;
-    }
-    added++;
-    setFindings.push({
-      criterion: c.criterion,
-      severity: c.severity,
-      reqIds: requirements.filter((r) => r.location && places.some((p) => overlaps(r.location!, p.location))).map((r) => r.id),
-      places,
-      problem: c.problem,
-      fix: c.fix,
-      question: c.question,
-      critical: isCritical(c.criterion, c.severity),
-      by: "code",
-    });
-  }
-  if (added + known) log(`   проверки кодом: новых находок ${added}, уже найдены моделью ${known}`);
+    return places.length ? [{ ...c, places }] : [];
+  });
+}
+
+/**
+ * Keep the code findings the model did not already make. A model finding counts as the same defect when it sits
+ * on an overlapping line and its text names the rule's topic.
+ */
+function notYetFound(code: GroundedCode[], model: { at: Location[]; text: string }[]): GroundedCode[] {
+  return code.filter((c) => !model.some((m) => c.topic.test(m.text) && m.at.some((l) => c.places.some((p) => overlaps(l, p.location)))));
+}
+
+const asModel = (fs: (Finding | Omit<SetFinding, "id">)[]) =>
+  fs.map((f) => ({ at: "places" in f ? f.places.map((p) => p.location) : [f.location], text: `${f.problem} ${f.fix}` }));
+
+function toSetFinding(c: GroundedCode, requirements: Requirement[]): Omit<SetFinding, "id"> {
+  return {
+    criterion: c.criterion,
+    severity: c.severity,
+    reqIds: requirements.filter((r) => r.location && c.places.some((p) => overlaps(r.location!, p.location))).map((r) => r.id),
+    places: c.places,
+    problem: c.problem,
+    fix: c.fix,
+    question: c.question,
+    critical: isCritical(c.criterion, c.severity),
+    by: "code",
+  };
 }
 
 type AnyFinding = ((Finding & { kind: "req" }) | (SetFinding & { kind: "set" })) & { key: string };

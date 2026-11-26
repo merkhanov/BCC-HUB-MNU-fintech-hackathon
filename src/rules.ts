@@ -233,42 +233,38 @@ function statusSections(lines: Line[]): CodeFinding[] {
 
 const PLACEHOLDER = /(не заполнен\p{L}*|не проставлен\p{L}*|заполня\p{L}+ (позже|тестировщик\p{L}*)|\bTBD\b|\bTODO\b|уточняется)/iu;
 
-/** Empty values («Prod: —», a table row with «—») and placeholder text left in the document. */
+/**
+ * Empty values («Prod: —», a table row with «—») and placeholder text left in the document. One finding per
+ * place, so a place the model already reported does not hide the others.
+ */
 function emptyValues(lines: Line[]): CodeFinding[] {
-  const quotes: string[] = [];
-  const labels: string[] = [];
+  const found: { label: string; quote: string }[] = [];
   for (const l of lines) {
     const inline = /([\p{L}][\p{L}\w]{1,20}):\s*[—–-]\s*(\||$)/u.exec(l.text);
     if (inline && !l.text.trim().startsWith("|---")) {
-      labels.push(inline[1]!);
-      quotes.push(`${inline[1]}: —`);
+      found.push({ label: inline[1]!, quote: `${inline[1]}: —` });
       continue;
     }
     const c = l.text.trim().startsWith("|") ? cells(l.text) : [];
     if (c.length === 2 && /^[—–-]?$/.test(c[1]!) && c[0] && !/^:?-+:?$/.test(c[0])) {
-      labels.push(c[0]);
-      quotes.push(`${c[0]} ${c[1] || ""}`.trim());
+      found.push({ label: c[0], quote: `${c[0]} ${c[1] || ""}`.trim() });
       continue;
     }
     if (PLACEHOLDER.test(l.text)) {
       const s = sentenceWith(l.text, PLACEHOLDER);
-      labels.push(s.length <= 60 ? s.replace(/\.$/, "") : `${s.slice(0, s.lastIndexOf(" ", 57))}…`);
-      quotes.push(sentenceWith(l.text, PLACEHOLDER));
+      found.push({ label: s.length <= 60 ? s.replace(/\.$/, "") : `${s.slice(0, s.lastIndexOf(" ", 57))}…`, quote: s });
     }
   }
-  if (quotes.length === 0) return [];
-  return [
-    {
-      rule: "empty-values",
-      criterion: "complete",
-      severity: "low",
-      quotes: quotes.slice(0, 4),
-      problem: `В документе остались незаполненные места: ${labels.slice(0, 6).map((x) => `«${x}»`).join(", ")}${labels.length > 6 ? ` и ещё ${labels.length - 6}` : ""}.`,
-      fix: "Заполните пустые поля или укажите, что значение не требуется и почему.",
-      question: "Какие значения должны стоять в пустых полях документа, или какие из них не нужны?",
-      topic: /не заполн|не указ|отсутств|пуст|не определ/iu,
-    },
-  ];
+  return found.map((x) => ({
+    rule: "empty-values",
+    criterion: "complete",
+    severity: "low",
+    quotes: [x.quote],
+    problem: `В документе осталось незаполненное место: «${x.label}».`,
+    fix: "Заполните значение или укажите, что оно не требуется и почему.",
+    question: `Что должно стоять в месте «${x.label}», или это значение не нужно?`,
+    topic: /не заполн|не указ|отсутств|пуст|не определ/iu,
+  }));
 }
 
 export function codeChecks(text: string): CodeFinding[] {
