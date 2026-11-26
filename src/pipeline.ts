@@ -1,6 +1,7 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
 import { errorText, type LLM } from "./llm.ts";
+import { codeChecks } from "./rules.ts";
 import type { Location, SourceDoc } from "./load.ts";
 import {
   type Addressee,
@@ -54,6 +55,8 @@ export interface SetFinding {
   fix: string;
   question: string;
   critical: boolean;
+  /** "code" when a rule in src/rules.ts found it without the model. */
+  by: "model" | "code";
 }
 
 /** A clarifying question to the document's author, tied to the findings it would resolve. */
@@ -68,6 +71,11 @@ export interface Question {
   severity: Severity;
   /** Labels of the findings the question resolves: «ТР-12, Корректность», «Н-02». */
   sources: string[];
+  /**
+   * How much one answer resolves: summed severity (high 3, medium 2, low 1) of its first WEIGHT_CAP findings.
+   * Breaks ties inside a priority tier; the cap keeps a question from winning by listing many small findings.
+   */
+  weight: number;
   reqIds: string[];
   places: { quote: string; location: Location }[];
 }
@@ -96,6 +104,8 @@ export interface RunResult {
 const BATCH_SIZE = 8;
 
 const SEVERITY_ORDER: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
+const SEVERITY_WEIGHT: Record<Severity, number> = { high: 3, medium: 2, low: 1 };
+const WEIGHT_CAP = 3;
 /** Within one severity, contradictions block work first, then untestable, ambiguous and incomplete items. */
 const CRITERION_ORDER: Record<string, number> = { consistent: 0, correct: 1, verifiable: 2, unambiguous: 3, complete: 4 };
 
@@ -257,8 +267,10 @@ export async function runChecks(
       fix: f.fix,
       question: f.question,
       critical: isCritical(f.criterion, f.severity),
+      by: "model",
     });
   }
+  addCodeFindings(doc, grounder, requirements, findings, unnumbered, log);
   const setFindings: SetFinding[] = unnumbered
     .sort(bySeverity)
     .map((f, i) => ({ id: `Н-${String(i + 1).padStart(2, "0")}`, ...f }));
@@ -296,6 +308,53 @@ function uniqueBy<T>(items: T[], key: (item: T) => string): T[] {
 }
 
 /** A finding of either kind with the F1../S1.. key the questions step cites it by. */
+const overlaps = (a: Location, b: Location) =>
+  (a.page ?? 0) === (b.page ?? 0) && a.line <= b.endLine && b.line <= a.endLine;
+
+/**
+ * Add the findings of the code rules that the model did not already make. A model finding counts as the same
+ * defect when it sits on an overlapping line and its text names the rule's topic.
+ */
+function addCodeFindings(
+  doc: SourceDoc,
+  grounder: Grounder,
+  requirements: Requirement[],
+  findings: Finding[],
+  setFindings: Omit<SetFinding, "id">[],
+  log: (msg: string) => void,
+) {
+  const model = [
+    ...findings.map((f) => ({ at: [f.location], text: `${f.problem} ${f.fix}` })),
+    ...setFindings.map((f) => ({ at: f.places.map((p) => p.location), text: `${f.problem} ${f.fix}` })),
+  ];
+  let added = 0;
+  let known = 0;
+  for (const c of codeChecks(doc.text)) {
+    const places = c.quotes.flatMap((q) => {
+      const g = grounder.find(q);
+      return g ? [{ quote: q, location: g.location }] : [];
+    });
+    if (places.length === 0) continue;
+    if (model.some((m) => c.topic.test(m.text) && m.at.some((l) => places.some((p) => overlaps(l, p.location))))) {
+      known++;
+      continue;
+    }
+    added++;
+    setFindings.push({
+      criterion: c.criterion,
+      severity: c.severity,
+      reqIds: requirements.filter((r) => r.location && places.some((p) => overlaps(r.location!, p.location))).map((r) => r.id),
+      places,
+      problem: c.problem,
+      fix: c.fix,
+      question: c.question,
+      critical: isCritical(c.criterion, c.severity),
+      by: "code",
+    });
+  }
+  if (added + known) log(`   проверки кодом: новых находок ${added}, уже найдены моделью ${known}`);
+}
+
 type AnyFinding = ((Finding & { kind: "req" }) | (SetFinding & { kind: "set" })) & { key: string };
 
 /**
@@ -336,6 +395,7 @@ async function askQuestions(
       ...raw,
       critical: sorted.some((f) => f.critical),
       severity: top.severity,
+      weight: sorted.slice(0, WEIGHT_CAP).reduce((sum, f) => sum + SEVERITY_WEIGHT[f.severity], 0),
       sources: sorted.map(label),
       reqIds: [...new Set(sorted.flatMap(reqIdsOf))],
       places: uniqueBy(sorted.flatMap(places), (p) => `${p.location.line}:${p.location.page ?? 0}`).slice(0, 3),
@@ -343,7 +403,7 @@ async function askQuestions(
   };
   const number = (qs: Omit<Question, "id">[]) =>
     qs
-      .sort(bySeverity)
+      .sort((a, b) => bySeverity(a, b) || b.weight - a.weight)
       .slice(0, MAX_QUESTIONS)
       .map((q, i) => ({ id: `В-${String(i + 1).padStart(2, "0")}`, ...q }));
 

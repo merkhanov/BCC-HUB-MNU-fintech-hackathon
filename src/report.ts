@@ -193,6 +193,12 @@ export function renderReport(r: RunResult, p: Passport): string {
 
   // 4. Set checks
   out.push("## 4. Проверка всего набора требований", "");
+  const byCode = r.setFindings.filter((f) => f.by === "code").length;
+  if (byCode)
+    out.push(
+      `Находки с пометкой «найдено кодом» (${byCode}) агент нашёл правилами в коде без модели: одна сумма в двух единицах, одно поле с двумя типами, GET для изменения данных, JSON без тела, код ответа не своего раздела, пустые поля. Модель их не нашла, поэтому код добавил их сам.`,
+      "",
+    );
   out.push(
     table(
       ["Критерий", "Источник", "Итог", "Находок"],
@@ -206,7 +212,7 @@ export function renderReport(r: RunResult, p: Passport): string {
   );
   // The pipeline already sorted the set findings by severity and numbered them in that order.
   for (const f of r.setFindings) {
-    out.push(`#### ${f.id}. ${SET_INFO[f.criterion].name}, ${SEVERITY[f.severity]}${f.critical ? ", критично" : ""}`, "");
+    out.push(`#### ${f.id}. ${SET_INFO[f.criterion].name}, ${SEVERITY[f.severity]}${f.critical ? ", критично" : ""}${f.by === "code" ? ", найдено кодом" : ""}`, "");
     out.push(`- Места: ${quotedPlaces(f.places)}.`);
     if (f.reqIds.length) out.push(`- Требования: ${f.reqIds.map(label).join(", ")}.`);
     out.push(`- Нарушение: ${f.problem}`, `- Как исправить: ${f.fix}`, `- Вопрос автору: ${f.question}`, "");
@@ -268,7 +274,7 @@ export function renderReport(r: RunResult, p: Passport): string {
           "reqId" in f
             ? [label(f.reqId), INDIVIDUAL_INFO[f.criterion].name, formatLocation(f.location), f.problem]
             : [
-                `${f.id} (набор)`,
+                `${f.id} (набор${f.by === "code" ? ", код" : ""})`,
                 SET_INFO[f.criterion].name,
                 formatPlaces(f.places),
                 f.problem,
