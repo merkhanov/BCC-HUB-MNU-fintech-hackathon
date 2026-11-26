@@ -49,6 +49,22 @@ export const SetSchema = z.object({
   ),
 });
 
+export const PairsSchema = z.object({
+  pairs: z.array(
+    z.object({
+      a: z.string().describe("id первого требования пары"),
+      b: z.string().describe("id второго требования пары"),
+      conflict: z.boolean().describe("true, если есть конкретный случай, в котором два места требуют разного"),
+      scenario: z.string().describe("Этот случай с исходными данными и событием; пусто, если conflict false"),
+      severity: Severity,
+      quotes: z.array(z.string()).describe("По дословной цитате из каждого места; пусто, если conflict false"),
+      problem: z.string(),
+      fix: z.string(),
+      question: z.string().describe("Вопрос автору с вариантами: как в первом месте, как во втором, оба при условии"),
+    }),
+  ),
+});
+
 export const ADDRESSEES = ["business", "analyst", "architect", "qa", "security"] as const;
 export type Addressee = (typeof ADDRESSEES)[number];
 
@@ -172,6 +188,31 @@ ${describeCriteria(SET_INFO)}
 - req_ids — значения поля id затронутых требований из списка (например «R3»), может быть пустым для пропусков.
 - Дефекты из списка «Уже найдено кодом» в отчёте уже есть, не повторяй их. Все остальные дефекты набора ищи как обычно.`,
     user: `Документ:\n<<<\n${docText}\n>>>${answersBlock(answers)}\n\nНарезка требований:\n${JSON.stringify(reqs, null, 1)}${known}`,
+  };
+}
+
+export interface PairBrief {
+  a: { id: string; doc_id: string | null; section: string; quote: string };
+  b: { id: string; doc_id: string | null; section: string; quote: string };
+}
+
+/**
+ * A narrow check: code chose pairs of requirements that share rare terms, and the model judges each pair. Looking
+ * at two places at a time finds contradictions between sections that a search over the whole document misses.
+ */
+export function pairsPrompt(docText: string, pairs: PairBrief[], answers: Answer[] = []): Prompt {
+  return {
+    system: `${ROLE}
+
+Задача этого шага: проверить пары требований на противоречие. Пары подобрал код, у двух мест в каждой паре есть общие термины.
+
+Правила шага:
+- Для каждой пары реши, есть ли конкретный случай (исходные данные и событие), в котором одно место требует одного поведения, а другое место требует другого.
+- Если в паре есть критерий приёмки, проверь его расчётом: примени правило из пары к исходным условиям критерия и сравни результат с ожидаемым результатом критерия.
+- Если такой случай есть: conflict true, scenario описывает его одной или двумя фразами с числами, quotes содержит по дословной цитате из каждого места, затем problem, fix и question.
+- Если случая нет или ты не можешь назвать его конкретно: conflict false, остальные текстовые поля пустые. Разная подробность двух мест противоречием не считается.
+- Верни ответ по каждой паре из списка, a и b без изменений.`,
+    user: `Документ:\n<<<\n${docText}\n>>>${answersBlock(answers)}\n\nПары для проверки:\n${JSON.stringify(pairs, null, 1)}`,
   };
 }
 

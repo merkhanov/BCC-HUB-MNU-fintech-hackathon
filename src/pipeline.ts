@@ -1,7 +1,7 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
 import { errorText, type LLM } from "./llm.ts";
-import { type CodeFinding, codeChecks, RULE_INFO } from "./rules.ts";
+import { type CodeFinding, codeChecks, RULE_INFO, relatedPairs } from "./rules.ts";
 import type { Location, SourceDoc } from "./load.ts";
 import {
   type Addressee,
@@ -11,6 +11,8 @@ import {
   ExtractSchema,
   extractPrompt,
   type FindingBrief,
+  PairsSchema,
+  pairsPrompt,
   QuestionsSchema,
   questionsPrompt,
   SetSchema,
@@ -281,6 +283,7 @@ export async function runChecks(
   const added = notYetFound(code, asModel(unnumbered));
   unnumbered.push(...added.map((c) => toSetFinding(c, requirements)));
   if (added.length) log(`   правила в коде добавили находок: ${added.length}`);
+  unnumbered.push(...(await checkPairs(doc, llm, log, grounder, requirements, unnumbered, key, answers)));
   const setFindings: SetFinding[] = unnumbered
     .sort(bySeverity)
     .map((f, i) => ({ id: `Н-${String(i + 1).padStart(2, "0")}`, ...f }));
@@ -358,6 +361,64 @@ function toSetFinding(c: GroundedCode, requirements: Requirement[]): Omit<SetFin
     by: "code",
     rule: c.rule,
   };
+}
+
+const PAIR_ATTEMPTS = 3;
+
+/**
+ * One request over pairs of requirements that code picked by shared rare terms. A contradiction is accepted only
+ * with a concrete case and a found quote from each side, and pairs the set step already reported are skipped.
+ */
+async function checkPairs(
+  doc: SourceDoc,
+  llm: LLM,
+  log: (msg: string) => void,
+  grounder: Grounder,
+  requirements: Requirement[],
+  setFindings: Omit<SetFinding, "id">[],
+  key: (r: Requirement) => string,
+  answers: Answer[],
+): Promise<Omit<SetFinding, "id">[]> {
+  const byKey = new Map(requirements.map((r) => [key(r), r]));
+  const reported = (a: Requirement, b: Requirement) => setFindings.some((f) => f.reqIds.includes(a.id) && f.reqIds.includes(b.id));
+  const pairs = relatedPairs(requirements.map((r) => ({ id: key(r), quote: r.quote, type: r.type })))
+    .map(([a, b]) => [byKey.get(a)!, byKey.get(b)!] as const)
+    .filter(([a, b]) => !reported(a, b));
+  if (pairs.length === 0) return [];
+  const brief = (r: Requirement) => ({ id: key(r), doc_id: r.docId, section: r.section, quote: r.quote });
+  let out;
+  try {
+    out = await llm.json("pairs", pairsPrompt(doc.text, pairs.map(([a, b]) => ({ a: brief(a), b: brief(b) })), answers), PairsSchema, {
+      attempts: PAIR_ATTEMPTS,
+    });
+  } catch (e) {
+    log(`   сверка пар не удалась: ${errorText(e).slice(0, 200)}`);
+    return [];
+  }
+  const found: Omit<SetFinding, "id">[] = [];
+  for (const p of out.pairs) {
+    const a = byKey.get(p.a.trim());
+    const b = byKey.get(p.b.trim());
+    if (!p.conflict || !p.scenario.trim() || !a || !b) continue;
+    const places = p.quotes.flatMap((q) => {
+      const g = grounder.find(q);
+      return g ? [{ quote: q, location: g.location }] : [];
+    });
+    if (places.length < 2) continue;
+    found.push({
+      criterion: "consistent",
+      severity: p.severity,
+      reqIds: [a.id, b.id],
+      places,
+      problem: `${p.problem} Пример: ${p.scenario}`,
+      fix: p.fix,
+      question: p.question,
+      critical: isCritical("consistent", p.severity),
+      by: "model",
+    });
+  }
+  log(`   сверка пар: проверено ${pairs.length}, противоречий ${found.length}`);
+  return found;
 }
 
 type AnyFinding = ((Finding & { kind: "req" }) | (SetFinding & { kind: "set" })) & { key: string };

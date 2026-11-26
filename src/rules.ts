@@ -296,11 +296,15 @@ function emptyTopic(label: string): RegExp {
   return new RegExp(`^(?=[\\s\\S]*(${EMPTY_WORDS}))(?=[\\s\\S]*(${words.join("|")}))`, "iu");
 }
 
+const STOP = new Set(["должен", "должна", "должно", "может", "также", "если", "когда", "после", "через", "который", "которая", "которые", "только", "более", "менее", "такой", "такая", "этого", "между", "каждый", "любой", "всех", "один", "одна"]);
+const CAP = /(максимум|не более|не чаще|не больше|только один|один раз|однократн|единожды|at most|no more than)/iu;
+const OVERRIDE = /(независимо|всегда|в любом случае|сбрасыва|повторн|снова|заново|regardless|always)/iu;
+
 /** Rough Russian stem: enough to match «порога» with «порогу» and «покупка» with «покупки». */
 export function stems(text: string): Set<string> {
   const out = new Set<string>();
   for (const w of text.toLowerCase().match(/[\p{L}\d]{4,}/gu) ?? []) {
-    if (/^\d+$/.test(w)) continue;
+    if (STOP.has(w) || /^\d+$/.test(w)) continue;
     out.add(w.length > 5 ? w.slice(0, 5) : w.slice(0, Math.max(3, w.length - 1)));
   }
   return out;
@@ -369,4 +373,46 @@ export function codeChecks(text: string): CodeFinding[] {
     ...emptyValues(lines),
     ...acceptanceCoverage(lines),
   ];
+}
+
+/**
+ * Pairs of requirements worth checking against each other, chosen in code: they share rare terms, and a pair
+ * gains weight when one sets a limit and the other overrides it, or when an acceptance criterion meets a rule.
+ * The pair check gets these pairs so the model compares two places instead of searching the whole document.
+ */
+export function relatedPairs(reqs: { id: string; quote: string; type: string }[], max = 12): [string, string][] {
+  const terms = reqs.map((r) => stems(r.quote));
+  const df = new Map<string, number>();
+  for (const t of terms) for (const s of t) df.set(s, (df.get(s) ?? 0) + 1);
+  const idf = (s: string) => Math.log(reqs.length / (df.get(s) ?? 1));
+  const scored: { a: number; b: number; score: number }[] = [];
+  for (let a = 0; a < reqs.length; a++)
+    for (let b = a + 1; b < reqs.length; b++) {
+      const shared = [...terms[a]!].filter((s) => terms[b]!.has(s) && (df.get(s) ?? 0) > 1);
+      if (shared.length < 2) continue;
+      let score = shared.reduce((sum, s) => sum + idf(s), 0);
+      const qa = reqs[a]!.quote;
+      const qb = reqs[b]!.quote;
+      if ((CAP.test(qa) && OVERRIDE.test(qb)) || (CAP.test(qb) && OVERRIDE.test(qa))) score *= 2;
+      scored.push({ a, b, score });
+    }
+  scored.sort((x, y) => y.score - x.score);
+  const isAcceptance = (i: number) => reqs[i]!.type === "acceptance";
+  // Every acceptance criterion first meets the rule it shares most terms with: that is where a worked example
+  // and a rule disagree. The remaining places go to the strongest pairs overall.
+  const picked = reqs.flatMap((_, i) =>
+    isAcceptance(i) ? scored.filter((p) => (p.a === i && !isAcceptance(p.b)) || (p.b === i && !isAcceptance(p.a))).slice(0, 1) : [],
+  );
+  const uses = new Map<number, number>();
+  const out: [string, string][] = [];
+  for (const p of [...picked, ...scored]) {
+    if (out.length >= max) break;
+    const pair: [string, string] = [reqs[p.a]!.id, reqs[p.b]!.id];
+    if (out.some(([x, y]) => x === pair[0] && y === pair[1])) continue;
+    if ((uses.get(p.a) ?? 0) >= 3 || (uses.get(p.b) ?? 0) >= 3) continue;
+    uses.set(p.a, (uses.get(p.a) ?? 0) + 1);
+    uses.set(p.b, (uses.get(p.b) ?? 0) + 1);
+    out.push(pair);
+  }
+  return out;
 }
