@@ -111,3 +111,29 @@ test("errorText unwraps Gemini JSON errors", () => {
   );
   expect(errorText(new Error("plain"))).toBe("plain");
 });
+
+test("an OpenAI model that rejects temperature is asked again without it, once per model", async () => {
+  const { createLLM } = await import("../src/llm.ts");
+  const bodies: Record<string, unknown>[] = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const body = (await req.json()) as Record<string, unknown>;
+      bodies.push(body);
+      if ("temperature" in body)
+        return new Response(JSON.stringify({ error: { message: "Unsupported value: 'temperature' does not support 0.1 with this model." } }), { status: 400 });
+      return Response.json({ model: body.model, choices: [{ message: { content: '{"ok":true}' } }] });
+    },
+  });
+  try {
+    const llm = createLLM(
+      { LLM_PROVIDER: "openai", OPENAI_API_KEY: "test", OPENAI_MODEL: "reasoner", OPENAI_BASE_URL: `http://localhost:${server.port}/v1` },
+      { cacheDir: join(tmp, "openai"), backoffMs: 0 },
+    );
+    expect(await llm.json("a", prompt, Schema)).toEqual({ ok: true });
+    expect(await llm.json("b", { system: "s2", user: "u2" }, Schema)).toEqual({ ok: true });
+    expect(bodies.map((b) => "temperature" in b)).toEqual([true, false, false]);
+  } finally {
+    server.stop(true);
+  }
+});

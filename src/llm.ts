@@ -308,23 +308,34 @@ class OpenAICompatibleLLM extends BaseLLM {
     super(`OpenAI-совместимый API (${new URL(baseUrl).host})`, models, opts);
   }
 
+  /** Models that reject a temperature setting (OpenAI reasoning models); learned from their first 400 answer. */
+  private readonly noTemperature = new Set<string>();
+
   protected async complete(model: string, prompt: Prompt, schema: z.ZodType, signal: AbortSignal): Promise<Completion> {
-    const res = await fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      signal,
-      headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature: TEMPERATURE,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: `${prompt.system}\n\nОтвечай только JSON по схеме:\n${JSON.stringify(jsonSchema(schema))}` },
-          { role: "user", content: prompt.user },
-        ],
-      }),
-    });
+    const send = () =>
+      fetch(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
+        body: JSON.stringify({
+          model,
+          ...(this.noTemperature.has(model) ? {} : { temperature: TEMPERATURE }),
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: `${prompt.system}\n\nОтвечай только JSON по схеме:\n${JSON.stringify(jsonSchema(schema))}` },
+            { role: "user", content: prompt.user },
+          ],
+        }),
+      });
+    let res = await send();
+    let text = res.ok ? "" : await res.text();
+    if (res.status === 400 && /temperature/i.test(text) && !this.noTemperature.has(model)) {
+      this.noTemperature.add(model);
+      res = await send();
+      text = res.ok ? "" : await res.text();
+    }
     if (!res.ok) {
-      const err = new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`) as Error & { status: number };
+      const err = new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`) as Error & { status: number };
       err.status = res.status;
       throw err;
     }
