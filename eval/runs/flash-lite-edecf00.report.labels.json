@@ -32,7 +32,7 @@
  "ТР-27/complete": false,
  "ТР-28/verifiable": false,
  "ТР-29/complete": true,
- "ТР-30/unambiguous": true,
+ "ТР-30/unambiguous": false,
  "ТР-31/conforming": true,
  "ТР-32/complete": false,
  "ТР-33/verifiable": false,
