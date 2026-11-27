@@ -51,3 +51,14 @@ test("Ф-3 against Ф-4 counts when a limit and its override are named, even wit
   });
   expect(rows.find((r) => r.defect.id === "f3-vs-f4")!.hits).toEqual(["Н-03"]);
 });
+
+test("acceptance gaps count when the finding says no criterion checks a rule, not only «не покрыто»", () => {
+  const rows = recall({
+    findings: [],
+    setFindings: [
+      { id: "Н-38", criterion: "validatable", places: [{ quote: "При изменении порога накопленная сумма сохраняется." }], problem: "Проверяется только точное достижение. Нет приёмки изменения порога с сохранением суммы.", fix: "" },
+      { id: "Н-39", criterion: "validatable", places: [{ quote: "Сервис передаёт push на отправку в течение минуты" }], problem: "Критерий не измеряет минутный норматив.", fix: "" },
+    ],
+  });
+  expect(rows.find((r) => r.defect.id === "acceptance-gaps")!.hits).toEqual(["Н-38"]);
+});
