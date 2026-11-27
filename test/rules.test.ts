@@ -106,3 +106,35 @@ test("a code finding is dropped only when a model finding on the same lines name
   expect(notYetFound(code, [{ at, text: "Не сказано, когда применяется скидка" }])).toHaveLength(1);
   expect(notYetFound(code, [{ at: [{ ...at[0]!, line: 9, endLine: 9 }], text: "единицы не совпадают" }])).toHaveLength(1);
 });
+
+test("a model finding a rule confirms gets a question even when the model rated it low", async () => {
+  const { runChecks } = await import("../src/pipeline.ts");
+  const text = "| Поле | Формат |\n| --- | --- |\n| `total` | integer |\n\n| Поле | Тип |\n| --- | --- |\n| total | string |\n";
+  const quote = "total string";
+  const llm = {
+    provider: "fake",
+    model: "fake",
+    stepModels: {},
+    calls: 0,
+    cached: 0,
+    async json<T>(step: string): Promise<T> {
+      if (step === "extract")
+        return { title: "t", requirements: [{ doc_id: null, section: "API", type: "data", summary: "total", quote }] } as T;
+      if (step.startsWith("check"))
+        return {
+          results: [
+            {
+              req_id: "R1",
+              findings: [{ criterion: "unambiguous", severity: "low", quote, problem: "Поле total описано как string, а выше как integer: типы не совпадают.", fix: "Указать один тип.", question: "Какой тип у total?" }],
+            },
+          ],
+        } as T;
+      return { findings: [], pairs: [], questions: [] } as T;
+    },
+  };
+  const r = await runChecks(doc(text), llm as never);
+  expect(r.findings[0]!.confirmedBy).toBe("field-types");
+  expect(r.findings[0]!.critical).toBe(false);
+  expect(r.setFindings.filter((f) => f.rule === "field-types")).toHaveLength(0);
+  expect(r.questions.map((q) => [q.by, q.question])).toContainEqual(["code", "Какой тип у total?"]);
+});

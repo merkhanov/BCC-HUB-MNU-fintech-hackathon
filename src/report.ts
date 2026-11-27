@@ -186,7 +186,7 @@ export function renderReport(r: RunResult, p: Passport): string {
         ["Критерий", "Серьёзность", "Место", "Цитата", "Нарушение", "Как исправить", "Вопрос автору"],
         fs.map((f) => [
           INDIVIDUAL_INFO[f.criterion].name,
-          f.critical ? `**${SEVERITY[f.severity]}, критично**` : SEVERITY[f.severity],
+          (f.critical ? `**${SEVERITY[f.severity]}, критично**` : SEVERITY[f.severity]) + (f.confirmedBy ? ", подтверждено кодом" : ""),
           formatLocation(f.location),
           q(f.quote),
           f.problem,
@@ -203,7 +203,7 @@ export function renderReport(r: RunResult, p: Passport): string {
   const byCode = r.setFindings.filter((f) => f.by === "code").length;
   if (byCode)
     out.push(
-      `Находки с пометкой «найдено кодом» (${byCode}) агент нашёл правилами в коде без модели: одна сумма в двух единицах, одно поле с двумя типами, GET для изменения данных, JSON без тела, код ответа не своего раздела, пустые поля. Модель их не нашла, поэтому код добавил их сам.`,
+      `Находки с пометкой «найдено кодом» (${byCode}) агент нашёл правилами в коде без модели: одна сумма в двух единицах, одно поле с двумя типами, GET для изменения данных, JSON без тела, код ответа не своего раздела, пустые поля. Модель их не нашла, поэтому код добавил их сам. Находки модели с пометкой «подтверждено кодом» нашло и правило, поэтому по каждой из них автору задан вопрос, даже если модель сочла её некритичной.`,
       "",
     );
   out.push(
@@ -219,7 +219,7 @@ export function renderReport(r: RunResult, p: Passport): string {
   );
   // The pipeline already sorted the set findings by severity and numbered them in that order.
   for (const f of r.setFindings) {
-    out.push(`#### ${f.id}. ${SET_INFO[f.criterion].name}, ${SEVERITY[f.severity]}${f.critical ? ", критично" : ""}${f.by === "code" ? ", найдено кодом" : ""}`, "");
+    out.push(`#### ${f.id}. ${SET_INFO[f.criterion].name}, ${SEVERITY[f.severity]}${f.critical ? ", критично" : ""}${f.by === "code" ? ", найдено кодом" : f.confirmedBy ? ", подтверждено кодом" : ""}`, "");
     out.push(`- Места: ${quotedPlaces(f.places)}.`);
     if (f.reqIds.length) out.push(`- Требования: ${f.reqIds.map(label).join(", ")}.`);
     out.push(`- Нарушение: ${f.problem}`, `- Как исправить: ${f.fix}`, `- Вопрос автору: ${f.question}`, "");

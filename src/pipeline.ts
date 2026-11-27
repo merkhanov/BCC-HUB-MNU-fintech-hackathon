@@ -44,6 +44,8 @@ export interface Finding {
   fix: string;
   question: string;
   critical: boolean;
+  /** The rule in src/rules.ts that found the same defect; such a finding always gets a question. */
+  confirmedBy?: string;
 }
 
 export interface SetFinding {
@@ -61,6 +63,8 @@ export interface SetFinding {
   by: "model" | "code";
   /** The rule in src/rules.ts that found it. */
   rule?: string;
+  /** The rule in src/rules.ts that found the same defect as this model finding. */
+  confirmedBy?: string;
 }
 
 /** A clarifying question to the document's author, tied to the findings it would resolve. */
@@ -247,7 +251,9 @@ export async function runChecks(
   log("3/4 Проверка набора требований");
   // Code findings the step 2 reviewers missed go into the set prompt as already found, so the model spends its
   // attention elsewhere; only what survives both steps is added to the report.
-  const code = notYetFound(groundCode(doc, grounder), asModel(findings));
+  const allCode = groundCode(doc, grounder);
+  confirm(allCode, findings);
+  const code = notYetFound(allCode, asModel(findings));
   const setOut = await llm.json(
     "set",
     setPrompt(
@@ -280,6 +286,7 @@ export async function runChecks(
       by: "model",
     });
   }
+  confirm(code, unnumbered);
   const added = notYetFound(code, asModel(unnumbered));
   unnumbered.push(...added.map((c) => toSetFinding(c, requirements)));
   if (added.length) log(`   правила в коде добавили находок: ${added.length}`);
@@ -342,7 +349,21 @@ export function groundCode(doc: SourceDoc, grounder: Grounder): GroundedCode[] {
  * on an overlapping line and its text names the rule's topic.
  */
 export function notYetFound(code: GroundedCode[], model: { at: Location[]; text: string }[]): GroundedCode[] {
-  return code.filter((c) => !model.some((m) => c.topic.test(m.text) && m.at.some((l) => c.places.some((p) => overlaps(l, p.location)))));
+  return code.filter((c) => !model.some((m) => sameDefect(c, m)));
+}
+
+const sameDefect = (c: GroundedCode, m: { at: Location[]; text: string }) =>
+  c.topic.test(m.text) && m.at.some((l) => c.places.some((p) => overlaps(l, p.location)));
+
+/**
+ * Mark each model finding that a code rule also found. The model may rate such a finding low, but the rule shows a
+ * defect that blocks work (a type mismatch, a GET that saves), so the questions step treats it like a code finding.
+ */
+export function confirm(code: GroundedCode[], model: (Finding | Omit<SetFinding, "id">)[]): void {
+  for (const f of model) {
+    const [m] = asModel([f]);
+    f.confirmedBy ??= code.find((c) => sameDefect(c, m!))?.rule;
+  }
 }
 
 const asModel = (fs: (Finding | Omit<SetFinding, "id">)[]) =>
@@ -502,14 +523,14 @@ async function askQuestions(
     return /interface|integration|data/.test(typeOf.get(f.reqId) ?? "") ? "architect" : "analyst";
   };
   /**
-   * Every critical finding and every code finding gets a question. The ones no model question cites are asked by
+   * Every critical finding, every code finding and every finding a code rule confirmed gets a question. The ones no model question cites are asked by
    * code, one question per requirement or per rule, after the model's questions.
    */
   const coverRest = (asked: Omit<Question, "id">[]): Omit<Question, "id">[] => {
     const cited = new Set(asked.flatMap((q) => q.sources));
     const groups = new Map<string, AnyFinding[]>();
     for (const f of all) {
-      if (!(f.critical || (f.kind === "set" && f.by === "code")) || cited.has(label(f)) || !f.question.trim()) continue;
+      if (!(f.critical || f.confirmedBy || (f.kind === "set" && f.by === "code")) || cited.has(label(f)) || !f.question.trim()) continue;
       const k = f.kind === "req" ? `req:${f.reqId}` : f.rule ? `rule:${f.rule}` : `set:${f.id}`;
       groups.set(k, [...(groups.get(k) ?? []), f]);
     }
