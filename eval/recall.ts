@@ -2,8 +2,8 @@
 /**
  * Recall check: which known defects of the issued document did a report find, and did a question reach them?
  *   bun run recall [report.json]   (default reports/requirements.report.json)
- * With <report>.labels.json next to the report ({"ТР-19/appropriate": true, "Н-03": false, ...}) it also prints
- * precision over the labelled findings. Prints Markdown to stdout. Makes no API calls.
+ * With <report>.labels.json next to the report ({"ТР-19/appropriate": true, "ТР-19/appropriate#2": false, "Н-03": false})
+ * it also prints precision over the labelled findings. Prints Markdown to stdout. Makes no API calls.
  */
 import { INDIVIDUAL_INFO, type IndividualCriterion } from "../src/criteria.ts";
 import { reqLabel } from "../src/pipeline.ts";
@@ -28,9 +28,16 @@ interface ReportJson {
 
 export function flatten(r: ReportJson): ReportFinding[] {
   const docId = new Map((r.requirements ?? []).map((x) => [x.id, x.docId]));
+  // A requirement can have two findings under one criterion; the second gets «#2» so each label names one finding.
+  const seen = new Map<string, number>();
+  const uniqueKey = (base: string) => {
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}#${n}`;
+  };
   return [
     ...r.findings.map((f) => ({
-      key: `${f.reqId}/${f.criterion}`,
+      key: uniqueKey(`${f.reqId}/${f.criterion}`),
       source: `${reqLabel(f.reqId, docId.get(f.reqId))}, ${INDIVIDUAL_INFO[f.criterion as IndividualCriterion]?.name ?? f.criterion}`,
       quotes: [f.quote],
       text: `${f.problem} ${f.fix}`,

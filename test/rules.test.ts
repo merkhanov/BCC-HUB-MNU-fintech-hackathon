@@ -226,3 +226,12 @@ test("low, level-of-detail and template remarks become minor unless a rule confi
   expect(r.minor.map((x) => x.criterion)).toEqual(["appropriate"]);
   expect(r.findings.map((x) => [x.criterion, x.confirmedBy])).toEqual([["unambiguous", "field-types"], ["complete", undefined]]);
 });
+
+test("the acceptance gap counts as found only when the model names the acceptance examples", () => {
+  const text = "* **П-1.** Напоминание приходит за 3 дня.\n* **П-2.** При переносе даты напоминание переносится.\n\n### Критерии приёмки\n\n| Условие | Действие | Результат |\n| --- | --- | --- |\n| Оплата 10 марта | Наступило 7 марта | Напоминание приходит 7 марта |\n";
+  const f = codeChecks(text).find((x) => x.rule === "acceptance-coverage")!;
+  expect(f.topic.test("Не описан случай включения при достигнутом пороге, сценарий не покрыт правилом перехода.")).toBe(false);
+  expect(f.topic.test("Ни один критерий не проверяет перенос даты.")).toBe(true);
+  expect(f.topic.test("Нет приёмки переноса даты.")).toBe(true);
+  expect(f.topic.test("Перенос даты не покрыт критериями приёмки.")).toBe(true);
+});

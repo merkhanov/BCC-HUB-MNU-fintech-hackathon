@@ -56,9 +56,10 @@ test("acceptance gaps count when the finding says no criterion checks a rule, no
   const rows = recall({
     findings: [],
     setFindings: [
-      { id: "Н-38", criterion: "validatable", places: [{ quote: "При изменении порога накопленная сумма сохраняется." }], problem: "Проверяется только точное достижение. Нет приёмки изменения порога с сохранением суммы.", fix: "" },
+      { id: "Н-36", criterion: "validatable", places: [{ quote: "Держатель активной карты KZT задаёт целый порог от 1 000 до 1 000 000 ₸" }], problem: "Ни один критерий не проверяет обе включённые границы.", fix: "" },
+      { id: "Н-38", criterion: "validatable", places: [{ quote: "Ф-4. При изменении порога накопленная сумма сохраняется." }], problem: "Проверяется только точное достижение. Нет приёмки изменения порога с сохранением суммы.", fix: "" },
       { id: "Н-39", criterion: "validatable", places: [{ quote: "Сервис передаёт push на отправку в течение минуты" }], problem: "Критерий не измеряет минутный норматив.", fix: "" },
     ],
   });
-  expect(rows.find((r) => r.defect.id === "acceptance-gaps")!.hits).toEqual(["Н-38"]);
+  expect(rows.find((r) => r.defect.id === "acceptance-gaps")!.hits).toEqual(["Н-36", "Н-38"]);
 });
