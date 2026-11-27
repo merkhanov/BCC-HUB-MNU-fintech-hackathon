@@ -63,3 +63,12 @@ test("acceptance gaps count when the finding says no criterion checks a rule, no
   });
   expect(rows.find((r) => r.defect.id === "acceptance-gaps")!.hits).toEqual(["Н-36", "Н-38"]);
 });
+
+test("Ф-3 against Ф-4 also counts when the finding calls it «неоднозначность»", () => {
+  const places = [{ quote: "Ф-3. На карту приходится максимум один такой push за календарный месяц." }, { quote: "Ф-4. следующее достижение вызывает push независимо от истории предыдущей настройки." }];
+  const rows = recall({
+    findings: [],
+    setFindings: [{ id: "Н-03", criterion: "consistent", places, problem: "Ф-3 устанавливает жёсткое ограничение в максимум одно push-уведомление, тогда как Ф-4 обязывает отправить push. При смене порога возникнет неоднозначность реализации.", fix: "" }],
+  });
+  expect(rows.find((r) => r.defect.id === "f3-vs-f4")!.hits).toEqual(["Н-03"]);
+});
