@@ -163,3 +163,32 @@ test("step 2 withdraws a finding only with a quote from another place that code 
   // An answer quote that is not in the document, no answer, or the finding's own line: the finding stays.
   expect(r.findings).toHaveLength(3);
 });
+
+test("a withdrawn finding comes back when a rule sees the same defect at the place the model called the answer", async () => {
+  const { runChecks } = await import("../src/pipeline.ts");
+  const text = "| Поле | Формат |\n| --- | --- |\n| `total` | integer |\n\n| Поле | Тип |\n| --- | --- |\n| total | string |\n";
+  const quote = "`total` | integer";
+  const llm = {
+    provider: "fake",
+    model: "fake",
+    stepModels: {},
+    calls: 0,
+    cached: 0,
+    async json<T>(step: string): Promise<T> {
+      if (step === "extract") return { title: "t", requirements: [{ doc_id: null, section: "API", type: "data", summary: "total", quote }] } as T;
+      if (step.startsWith("check"))
+        return {
+          results: [
+            {
+              req_id: "R1",
+              findings: [{ criterion: "unambiguous", quote, elsewhere: "total | string", answered: true, severity: "medium", problem: "total здесь integer, а в ответе string: типы не совпадают.", fix: "", question: "Какой тип у total?" }],
+            },
+          ],
+        } as T;
+      return { findings: [], pairs: [], questions: [] } as T;
+    },
+  };
+  const r = await runChecks(doc(text), llm as never);
+  expect(r.answered).toHaveLength(0);
+  expect(r.findings.map((f) => f.confirmedBy)).toEqual(["field-types"]);
+});

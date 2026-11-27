@@ -192,6 +192,8 @@ export async function runChecks(
   const grounder = new Grounder(doc);
   const rejected: Rejected[] = [];
   const answered: Answered[] = [];
+  /** Withdrawn findings, kept whole until the code rules have run: a rule can still put one back. */
+  const staged: { finding: Finding; answer?: Answered["answer"] }[] = [];
 
   log("1/4 Нарезка требований");
   const extracted = await llm.json("extract", extractPrompt(doc.text), ExtractSchema);
@@ -214,7 +216,6 @@ export async function runChecks(
   const key = (r: Requirement) => `R${requirements.indexOf(r) + 1}`;
   log(`   найдено требований: ${requirements.length}`);
 
-  const findings: Finding[] = [];
   const assess = async (step: string, batch: Requirement[]) => {
     const input = batch.map((r) => ({ id: key(r), doc_id: r.docId, section: r.section, quote: r.quote }));
     const out = await llm.json(step, checkPrompt(doc.text, input, answers), CheckSchema);
@@ -236,11 +237,7 @@ export async function runChecks(
         // The model may withdraw a finding only with a quote code finds elsewhere in the document; without one the
         // finding stays.
         const answer = f.answered && f.elsewhere?.trim() ? grounder.find(f.elsewhere) : null;
-        if (answer && !overlaps(answer.location, g.location)) {
-          answered.push({ reqId: req.id, criterion: f.criterion, quote: f.quote, problem: f.problem, answer: { quote: f.elsewhere, location: answer.location } });
-          continue;
-        }
-        findings.push({
+        const finding: Finding = {
           reqId: req.id,
           criterion: f.criterion,
           severity: f.severity,
@@ -250,7 +247,8 @@ export async function runChecks(
           fix: f.fix,
           question: f.question,
           critical: isCritical(f.criterion, f.severity),
-        });
+        };
+        staged.push(answer && !overlaps(answer.location, g.location) ? { finding, answer: { quote: f.elsewhere, location: answer.location } } : { finding });
       }
     }
   };
@@ -265,7 +263,6 @@ export async function runChecks(
       await assess(`check-${i + 1}-retry`, missing);
     }
   }
-  if (answered.length) log(`   сняты как уже отвеченные в документе: ${answered.length}`);
   const unchecked = requirements.filter((r) => !r.checked);
   if (unchecked.length) log(`   не проверены: ${unchecked.map((r) => r.id).join(", ")}`);
 
@@ -273,6 +270,17 @@ export async function runChecks(
   // Code findings the step 2 reviewers missed go into the set prompt as already found, so the model spends its
   // attention elsewhere; only what survives both steps is added to the report.
   const allCode = groundCode(doc, grounder);
+  // The model often takes the conflicting place for the answer («amount string» answers «amount integer»). A rule
+  // that sees the same defect on the finding's lines or on the answer's lines puts the finding back.
+  const findings: Finding[] = [];
+  for (const { finding: f, answer } of staged) {
+    const text = `${f.problem} ${f.fix}`;
+    const rule = answer && allCode.find((c) => sameDefect(c, { at: [f.location], text }) || sameDefect(c, { at: [answer.location], text }));
+    if (!answer || rule) findings.push(f);
+    else answered.push({ reqId: f.reqId, criterion: f.criterion, quote: f.quote, problem: f.problem, answer });
+  }
+  const withdrawn = staged.filter((s) => s.answer).length;
+  if (withdrawn) log(`   сняты как уже отвеченные в документе: ${answered.length}, возвращены правилами: ${withdrawn - answered.length}`);
   confirm(allCode, findings);
   const code = notYetFound(allCode, asModel(findings));
   const setOut = await llm.json(
