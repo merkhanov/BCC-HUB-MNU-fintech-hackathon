@@ -1,0 +1,1169 @@
+{
+ "model": "jev-1.14.0",
+ "nodes": [
+  {
+   "id": "ТР-02",
+   "type": "integration",
+   "summary": "Архитектурная цепочка взаимодействия мобильного приложения, сервиса настроек, процессинга и push"
+  },
+  {
+   "id": "ТР-03",
+   "type": "ui",
+   "summary": "Навигация и состав элементов экрана настройки порога расходов"
+  },
+  {
+   "id": "ТР-04",
+   "type": "functional",
+   "summary": "Последовательность шагов процесса обработки покупки и отправки push"
+  },
+  {
+   "id": "ТР-05 (Ф-1)",
+   "type": "functional",
+   "summary": "Установка порога расходов держателем активной карты KZT"
+  },
+  {
+   "id": "ТР-06 (Ф-2)",
+   "type": "functional",
+   "summary": "Правила определения месяца по Алматы и состав учитываемых операций"
+  },
+  {
+   "id": "ТР-07 (Ф-3)",
+   "type": "functional",
+   "summary": "Условия отправки push-уведомления и лимит в один push в месяц"
+  },
+  {
+   "id": "ТР-08 (Ф-4)",
+   "type": "functional",
+   "summary": "Сохранение накопленной суммы и логика отправки push при изменении порога"
+  },
+  {
+   "id": "ТР-09",
+   "type": "integration",
+   "summary": "Последовательность взаимодействия процессинга, сервиса расходов, сервиса настроек и push"
+  },
+  {
+   "id": "ТР-10",
+   "type": "nonfunctional",
+   "summary": "Ограничение по времени передачи push-уведомления на отправку"
+  },
+  {
+   "id": "ТР-11",
+   "type": "data",
+   "summary": "Состав и формат хранимых данных по карте и операциям"
+  },
+  {
+   "id": "ТР-12",
+   "type": "integration",
+   "summary": "Интеграция с REST API настроек и идемпотентность обработки событий процессинга"
+  },
+  {
+   "id": "ТР-13",
+   "type": "acceptance",
+   "summary": "Проверка достижения порога и отправки push при проведении покупки"
+  },
+  {
+   "id": "ТР-14",
+   "type": "acceptance",
+   "summary": "Проверка отнесения операции к месяцу по времени Алматы"
+  },
+  {
+   "id": "ТР-15",
+   "type": "acceptance",
+   "summary": "Проверка исключения денежных переводов из расчёта расходов"
+  }
+ ],
+ "edges": [
+  {
+   "a": "ТР-02",
+   "b": "ТР-03",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.82,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.88,
+    "none": 0.12
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-04",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.99,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-05 (Ф-1)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.92,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.95,
+    "none": 0.04
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-06 (Ф-2)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.85,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.9,
+    "none": 0.1
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-07 (Ф-3)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.99,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-08 (Ф-4)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.76,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.84,
+    "none": 0.15
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-09",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-10",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.99,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.91,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.94,
+    "none": 0.06
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.99,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.83,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.89,
+    "none": 0.1
+   }
+  },
+  {
+   "a": "ТР-02",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.83,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.89,
+    "none": 0.11
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-04",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.56,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.29,
+    "none": 0.71
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-05 (Ф-1)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.99,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-06 (Ф-2)",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.49,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.34,
+    "none": 0.66
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-07 (Ф-3)",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.61,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.26,
+    "none": 0.74
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-08 (Ф-4)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.7,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.8,
+    "none": 0.2
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-09",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.38,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.4,
+    "none": 0.59
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-10",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.97,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.02,
+    "none": 0.98
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.34,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.56,
+    "none": 0.43
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.88,
+   "probabilities": {
+    "conflict": 0.03,
+    "refines": 0.92,
+    "none": 0.05
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.31,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.54,
+    "none": 0.46
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.89,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.07,
+    "none": 0.93
+   }
+  },
+  {
+   "a": "ТР-03",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.38,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.41,
+    "none": 0.59
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-05 (Ф-1)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.97,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.98,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-06 (Ф-2)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-07 (Ф-3)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.99,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-08 (Ф-4)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.97,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.98,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-09",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-10",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.66,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.77,
+    "none": 0.21
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.99,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-04",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.99,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-06 (Ф-2)",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.8,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.13,
+    "none": 0.87
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-07 (Ф-3)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.66,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.77,
+    "none": 0.21
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-08 (Ф-4)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.37,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.58,
+    "none": 0.41
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-09",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.94,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.96,
+    "none": 0.02
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-10",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.96,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.03,
+    "none": 0.97
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.94,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.96,
+    "none": 0.03
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.94,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.96,
+    "none": 0.02
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.97,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.98,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.88,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.07,
+    "none": 0.92
+   }
+  },
+  {
+   "a": "ТР-05 (Ф-1)",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.49,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.33,
+    "none": 0.66
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-07 (Ф-3)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.91,
+   "probabilities": {
+    "conflict": 0.04,
+    "refines": 0.94,
+    "none": 0.02
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-08 (Ф-4)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.44,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.63,
+    "none": 0.36
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-09",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.96,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.97,
+    "none": 0.02
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-10",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.68,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.2,
+    "none": 0.79
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.96,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.97,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.56,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.28,
+    "none": 0.71
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.99,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.97,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.98,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-06 (Ф-2)",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-07 (Ф-3)",
+   "b": "ТР-08 (Ф-4)",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.86,
+   "probabilities": {
+    "conflict": 0.08,
+    "refines": 0.91,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-07 (Ф-3)",
+   "b": "ТР-09",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.96,
+   "probabilities": {
+    "conflict": 0.03,
+    "refines": 0.97,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-07 (Ф-3)",
+   "b": "ТР-10",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.82,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.88,
+    "none": 0.11
+   }
+  },
+  {
+   "a": "ТР-07 (Ф-3)",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.99,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-07 (Ф-3)",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.25,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.5,
+    "none": 0.48
+   }
+  },
+  {
+   "a": "ТР-07 (Ф-3)",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 1,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 1,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-07 (Ф-3)",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.46,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.64,
+    "none": 0.34
+   }
+  },
+  {
+   "a": "ТР-07 (Ф-3)",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.48,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.65,
+    "none": 0.34
+   }
+  },
+  {
+   "a": "ТР-08 (Ф-4)",
+   "b": "ТР-09",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.94,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.96,
+    "none": 0.02
+   }
+  },
+  {
+   "a": "ТР-08 (Ф-4)",
+   "b": "ТР-10",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.85,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.1,
+    "none": 0.9
+   }
+  },
+  {
+   "a": "ТР-08 (Ф-4)",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.97,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.98,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-08 (Ф-4)",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.77,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.85,
+    "none": 0.14
+   }
+  },
+  {
+   "a": "ТР-08 (Ф-4)",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.68,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.79,
+    "none": 0.2
+   }
+  },
+  {
+   "a": "ТР-08 (Ф-4)",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.86,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.08,
+    "none": 0.91
+   }
+  },
+  {
+   "a": "ТР-08 (Ф-4)",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.86,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.09,
+    "none": 0.91
+   }
+  },
+  {
+   "a": "ТР-09",
+   "b": "ТР-10",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.99,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-09",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.97,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.98,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-09",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.72,
+   "probabilities": {
+    "conflict": 0.03,
+    "refines": 0.81,
+    "none": 0.16
+   }
+  },
+  {
+   "a": "ТР-09",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.98,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.99,
+    "none": 0
+   }
+  },
+  {
+   "a": "ТР-09",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.76,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.84,
+    "none": 0.14
+   }
+  },
+  {
+   "a": "ТР-09",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.89,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.93,
+    "none": 0.06
+   }
+  },
+  {
+   "a": "ТР-10",
+   "b": "ТР-11",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.46,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.64,
+    "none": 0.35
+   }
+  },
+  {
+   "a": "ТР-10",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.88,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.07,
+    "none": 0.92
+   }
+  },
+  {
+   "a": "ТР-10",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.83,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.89,
+    "none": 0.1
+   }
+  },
+  {
+   "a": "ТР-10",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.89,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.06,
+    "none": 0.93
+   }
+  },
+  {
+   "a": "ТР-10",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.92,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.05,
+    "none": 0.95
+   }
+  },
+  {
+   "a": "ТР-11",
+   "b": "ТР-12",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.7,
+   "probabilities": {
+    "conflict": 0.03,
+    "refines": 0.8,
+    "none": 0.17
+   }
+  },
+  {
+   "a": "ТР-11",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.96,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.97,
+    "none": 0.01
+   }
+  },
+  {
+   "a": "ТР-11",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.92,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.95,
+    "none": 0.04
+   }
+  },
+  {
+   "a": "ТР-11",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.76,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.84,
+    "none": 0.15
+   }
+  },
+  {
+   "a": "ТР-12",
+   "b": "ТР-13",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.76,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.84,
+    "none": 0.15
+   }
+  },
+  {
+   "a": "ТР-12",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.8,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.12,
+    "none": 0.87
+   }
+  },
+  {
+   "a": "ТР-12",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.7,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.19,
+    "none": 0.8
+   }
+  },
+  {
+   "a": "ТР-13",
+   "b": "ТР-14",
+   "type": "choice",
+   "choice": "refines",
+   "confidence": 0.33,
+   "probabilities": {
+    "conflict": 0.02,
+    "refines": 0.55,
+    "none": 0.43
+   }
+  },
+  {
+   "a": "ТР-13",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.26,
+   "probabilities": {
+    "conflict": 0.01,
+    "refines": 0.48,
+    "none": 0.51
+   }
+  },
+  {
+   "a": "ТР-14",
+   "b": "ТР-15",
+   "type": "choice",
+   "choice": "none",
+   "confidence": 0.58,
+   "probabilities": {
+    "conflict": 0,
+    "refines": 0.28,
+    "none": 0.72
+   }
+  }
+ ]
+}
