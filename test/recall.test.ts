@@ -38,3 +38,16 @@ test("a question covers a known defect when it cites one of the matching finding
   expect(row.questions).toEqual(["В-01"]);
   expect(precision(report, { "ТР-01/correct": true })).toEqual({ total: 1, labelled: 1, truePositives: 1, precision: 1 });
 });
+
+test("Ф-3 against Ф-4 counts when a limit and its override are named, even without the word «противоречие»", () => {
+  const quotes = [{ quote: "Ф-3. На карту приходится максимум один такой push за календарный месяц." }, { quote: "Ф-4. следующее достижение вызывает push независимо от истории предыдущей настройки." }];
+  const rows = recall({
+    findings: [
+      finding("следующее достижение вызывает push независимо от истории предыдущей настройки", "Формулировка «независимо от истории предыдущей настройки» не описывает конкретный ожидаемый флаг или триггер в базе данных"),
+    ],
+    setFindings: [
+      { id: "Н-03", criterion: "consistent", places: quotes, problem: "Требование Ф-3 ограничивает количество push до одного на карту за календарный месяц, а требование Ф-4 обязывает отправлять push при достижении нового порога независимо от ранее отправленных уведомлений.", fix: "" },
+    ],
+  });
+  expect(rows.find((r) => r.defect.id === "f3-vs-f4")!.hits).toEqual(["Н-03"]);
+});
