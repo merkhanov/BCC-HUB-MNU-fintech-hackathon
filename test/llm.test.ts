@@ -137,3 +137,33 @@ test("an OpenAI model that rejects temperature is asked again without it, once p
     server.stop(true);
   }
 });
+
+test("OpenRouter asks for strict JSON schema, falls back to json_object once, and leaves 503 retries to the agent", async () => {
+  const { createLLM } = await import("../src/llm.ts");
+  const formats: string[] = [];
+  let busy = 1;
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const body = (await req.json()) as { model: string; response_format: { type: string; json_schema?: { strict?: boolean; schema?: unknown } } };
+      formats.push(`${body.response_format.type}${body.response_format.json_schema?.strict ? ":strict" : ""}`);
+      if (body.model === "busy" && busy-- > 0) return new Response(JSON.stringify({ error: { message: "overloaded" } }), { status: 503 });
+      if (body.model === "plain" && body.response_format.type === "json_schema")
+        return new Response(JSON.stringify({ error: { message: "This model does not support response_format json_schema" } }), { status: 400 });
+      return Response.json({ id: "x", object: "chat.completion", created: 1, model: `${body.model}-v1`, choices: [{ index: 0, finishReason: "stop", finish_reason: "stop", message: { role: "assistant", content: '{"ok":true}' } }] });
+    },
+  });
+  try {
+    const env = { LLM_PROVIDER: "openrouter", OPENROUTER_API_KEY: "test", OPENROUTER_BASE_URL: `http://localhost:${server.port}/api/v1` };
+    const plain = createLLM({ ...env, OPENROUTER_MODEL: "plain" }, { cacheDir: join(tmp, "or-plain"), backoffMs: 0 });
+    expect(await plain.json("a", prompt, Schema)).toEqual({ ok: true });
+    expect(formats).toEqual(["json_schema:strict", "json_object"]);
+    formats.length = 0;
+    const flaky = createLLM({ ...env, OPENROUTER_MODEL: "busy" }, { cacheDir: join(tmp, "or-busy"), backoffMs: 0 });
+    expect(await flaky.json("b", prompt, Schema)).toEqual({ ok: true });
+    expect(formats).toEqual(["json_schema:strict", "json_schema:strict"]);
+    expect(flaky.stepModels.b).toBe("busy-v1");
+  } finally {
+    server.stop(true);
+  }
+});

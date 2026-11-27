@@ -1,5 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { OpenRouter } from "@openrouter/sdk";
+import { OpenRouterError, ResponseValidationError } from "@openrouter/sdk/models/errors";
 import { z } from "zod";
 
 export interface Prompt {
@@ -70,11 +72,16 @@ export function createLLM(env: Record<string, string | undefined> = process.env,
       opts,
     );
   }
+  if (provider === "openrouter") {
+    if (!env.OPENROUTER_API_KEY) throw new ConfigError("Не задан OPENROUTER_API_KEY для LLM_PROVIDER=openrouter. Ключ: https://openrouter.ai/settings/keys");
+    if (!env.OPENROUTER_MODEL) throw new ConfigError("Не задан OPENROUTER_MODEL для LLM_PROVIDER=openrouter, например google/gemini-4-neon");
+    return new OpenRouterLLM(env.OPENROUTER_API_KEY, models(env.OPENROUTER_MODEL, ""), opts, env.OPENROUTER_BASE_URL);
+  }
   if (provider === "fixture") {
     if (!env.FIXTURE_DIR) throw new ConfigError("Не задан FIXTURE_DIR для LLM_PROVIDER=fixture");
     return new FixtureLLM(env.FIXTURE_DIR);
   }
-  throw new ConfigError(`Неизвестный LLM_PROVIDER=${provider}. Допустимо: gemini, openai, fixture`);
+  throw new ConfigError(`Неизвестный LLM_PROVIDER=${provider}. Допустимо: gemini, openai, openrouter, fixture`);
 }
 
 /** "a, b" → ["a", "b"]: the first model is primary, the rest are fallbacks for overload. */
@@ -341,6 +348,84 @@ class OpenAICompatibleLLM extends BaseLLM {
     }
     const body = (await res.json()) as { model?: string; choices: { message: { content: string } }[] };
     return { text: body.choices[0]?.message.content ?? "", reportedModel: body.model };
+  }
+}
+
+/**
+ * OpenRouter through its typed SDK. The answer is requested as strict JSON schema output, so a model that supports
+ * structured outputs cannot return a different shape; zod still checks every answer. The SDK does not retry: retries,
+ * deadlines and the model chain stay in BaseLLM, like for the other providers.
+ */
+class OpenRouterLLM extends BaseLLM {
+  private readonly client: OpenRouter;
+  /** Models that rejected a setting once; learned from their 400 answer. */
+  private readonly noTemperature = new Set<string>();
+  private readonly noStrictSchema = new Set<string>();
+
+  constructor(apiKey: string, models: string[], opts: LLMOptions, serverURL?: string) {
+    super("OpenRouter (SDK @openrouter/sdk)", models, opts);
+    this.client = new OpenRouter({ apiKey, retryConfig: { strategy: "none" }, ...(serverURL ? { serverURL } : {}) });
+  }
+
+  protected async complete(model: string, prompt: Prompt, schema: z.ZodType, signal: AbortSignal): Promise<Completion> {
+    const send = () => {
+      const strict = !this.noStrictSchema.has(model);
+      return this.client.chat.send(
+        {
+          appTitle: "req-checker",
+          chatRequest: {
+            model,
+            stream: false,
+            ...(this.noTemperature.has(model) ? {} : { temperature: TEMPERATURE }),
+            responseFormat: strict
+              ? { type: "json_schema", jsonSchema: { name: "answer", schema: jsonSchema(schema), strict: true } }
+              : { type: "json_object" },
+            messages: [
+              { role: "system", content: strict ? prompt.system : `${prompt.system}\n\nОтвечай только JSON по схеме:\n${JSON.stringify(jsonSchema(schema))}` },
+              { role: "user", content: prompt.user },
+            ],
+          },
+        },
+        { fetchOptions: { signal } },
+      );
+    };
+    let res: { model?: string; choices: { finishReason?: unknown; message: { content?: unknown } }[] };
+    for (;;) {
+      try {
+        res = await send();
+        break;
+      } catch (e) {
+        // The SDK rejects a 200 answer that lacks a metadata field it types as required (system_fingerprint from
+        // some providers). The answer itself is still in the raw body, and zod checks it below.
+        if (e instanceof ResponseValidationError) {
+          const raw = e.rawValue as { model?: string; choices?: { finish_reason?: unknown; message?: { content?: unknown } }[] } | undefined;
+          if (raw?.choices?.[0]?.message) {
+            res = { model: raw.model, choices: raw.choices.map((c) => ({ finishReason: c.finish_reason, message: { content: c.message?.content } })) };
+            break;
+          }
+        }
+        if (!(e instanceof OpenRouterError)) throw e;
+        // A model that does not take a setting answers 400 naming it; ask again once without it.
+        if (e.statusCode === 400 && /temperature/i.test(e.body) && !this.noTemperature.has(model)) {
+          this.noTemperature.add(model);
+          continue;
+        }
+        if (e.statusCode === 400 && /json_schema|response_format|structured/i.test(e.body) && !this.noStrictSchema.has(model)) {
+          this.noStrictSchema.add(model);
+          continue;
+        }
+        throw Object.assign(new Error(`HTTP ${e.statusCode}: ${e.body.slice(0, 300)}`), { status: e.statusCode });
+      }
+    }
+    const content = res.choices[0]?.message.content;
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content.map((c: { text?: string }) => c.text ?? "").join("")
+          : "";
+    if (!text) throw new RetryableError(`пустой ответ (${res.choices[0]?.finishReason ?? "без причины"})`);
+    return { text, reportedModel: res.model };
   }
 }
 

@@ -6,6 +6,7 @@
       "name": "req-checker",
       "dependencies": {
         "@google/genai": "^3.6.1",
+        "@openrouter/sdk": "1.5.100",
         "mammoth": "^1.13.0",
         "unpdf": "^2.2.2",
         "zod": "^4.6.7",
@@ -18,6 +19,8 @@
   },
   "packages": {
     "@google/genai": ["@google/genai@3.6.1", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.6.5", "ws": "^8.21.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-DQIkZkl+VoZc+RUSaJ41vRuywjQDpP0t/oUf5/ddQhNW6JsPjVULW2EgHmuJ1mrr6ACtrmUdPlqtNXF1yfKySg=="],
+
+    "@openrouter/sdk": ["@openrouter/sdk@1.5.100", "", { "dependencies": { "zod": "^3.25.0 || ^4.0.0" }, "hasInstallScript": true }, "sha512-i/6sOoMiEmxt9pJ8bp3LP7XuEzyXp37BYY7n9v3/qYQRmV7n+D5s8UTsSc2xRTH9ls6o588CYVzo2pY4BqV5pA=="],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 

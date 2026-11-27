@@ -83,13 +83,17 @@ GEMINI_API_KEY=AIza... bun start docs/requirements.md
 
 | Переменная | По умолчанию | Значение |
 | --- | --- | --- |
-| `LLM_PROVIDER` | `gemini` | `gemini`, `openai` (любой OpenAI-совместимый API) или `fixture` (только для тестов) |
+| `LLM_PROVIDER` | `gemini` | `gemini`, `openai` (любой OpenAI-совместимый API), `openrouter` (OpenRouter через типизированный SDK `@openrouter/sdk`) или `fixture` (только для тестов) |
 | `GEMINI_API_KEY` | | Ключ Google AI Studio |
 | `GEMINI_MODEL` | `gemini-3.6-flash,gemini-3.5-flash-lite` | Модель или список моделей через запятую. Первая основная, остальные резервные |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Адрес OpenAI-совместимого API, например `http://localhost:11434/v1` для Ollama |
 | `OPENAI_API_KEY` | пусто | Ключ OpenAI-совместимого API. Для Ollama не нужен |
 | `OPENAI_MODEL` | | Модель или список через запятую |
+| `OPENROUTER_API_KEY` | | Ключ OpenRouter для `LLM_PROVIDER=openrouter`, https://openrouter.ai/settings/keys |
+| `OPENROUTER_MODEL` | | Модель OpenRouter или список через запятую, например `google/gemini-4-neon` |
 | `FIXTURE_DIR` | | Папка с записанными ответами для `LLM_PROVIDER=fixture` |
+
+С `LLM_PROVIDER=openrouter` запросы и ответы типизирует SDK `@openrouter/sdk`. Агент просит у модели ответ строго по JSON-схеме шага (structured outputs). Если модель такой режим не поддерживает и отвечает 400, агент один раз переходит на режим «любой JSON» со схемой в промпте; если модель не принимает `temperature`, агент повторяет запрос без неё. Повторы, срок ответа и резервные модели работают так же, как для Gemini: собственные повторы SDK выключены. Ответ модели в любом случае проверяет zod.
 
 ### Какую модель выбрать
 
@@ -348,7 +352,7 @@ flowchart TD
 ### Тесты без ключа и сети
 
 ```bash
-bun test            # 47 тестов в 6 файлах: привязка цитат, PDF, DOCX, повторы, срок ответа, дневная квота, резервная модель, кэш, сквозной прогон CLI, вопросы и ответы, коды выхода, вывод --json, правила кодом, сверка с известными дефектами
+bun test            # 48 тестов в 6 файлах: привязка цитат, PDF, DOCX, повторы, срок ответа, дневная квота, резервная модель, кэш, сквозной прогон CLI, вопросы и ответы, коды выхода, вывод --json, правила кодом, сверка с известными дефектами
 bun run typecheck   # tsc --noEmit
 ```
 

@@ -31,7 +31,7 @@ const USAGE = `Агент проверки требований (ISO/IEC/IEEE 29
                      всё равно сохраняются, чтобы прогон можно было продолжить после сбоя.
   -h, --help         Эта справка.
 
-Настройки в .env (см. .env.example): LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL.`;
+Настройки в .env (см. .env.example): LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL, OPENROUTER_API_KEY, OPENROUTER_MODEL.`;
 
 const ROOT = resolve(import.meta.dir, "..");
 /** Progress goes to stderr; console.error would colour every line red in a terminal. */
