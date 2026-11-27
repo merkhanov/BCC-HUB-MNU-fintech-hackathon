@@ -107,6 +107,7 @@ export function renderReport(r: RunResult, p: Passport): string {
         ["Провайдер LLM", p.provider],
         ["Модель", modelLine(p)],
         ["Запросов к API", p.cached ? `${p.calls}, ещё шагов из кэша прошлого прогона: ${p.cached}` : p.calls],
+        ...(r.judged ? [["Судья находок", `TypeSafe ${r.judged.model}, порог ${r.judged.threshold}, снято ${r.judged.dropped.length} из ${r.judged.scored}`]] : []),
         ["Уточнения автора", p.answersFile ? `ответов: ${r.answers.length}, файл \`${p.answersFile}\`` : "нет, первый прогон"],
         ["Версия агента", `\`${p.agentVersion}\``],
         ["Критерии", "ISO/IEC/IEEE 29148:2018 п. 5.2.5, 5.2.6; IEEE Std 830-1998 п. 4.3"],
@@ -371,6 +372,31 @@ export function renderReport(r: RunResult, p: Passport): string {
       ),
       "",
     );
+  }
+
+  if (r.judged) {
+    const j = r.judged;
+    out.push("## Приложение. Находки, которые снял судья TypeSafe", "");
+    out.push(
+      `Модель ${j.model} TypeSafe System One оценила ${j.scored} находок модели: для каждой вероятность того, что это реальный дефект, который нужно исправить или уточнить до разработки. Находки ниже порога ${j.threshold} агент не считает нарушениями и не задаёт по ним вопросов (снято: ${j.dropped.length}). Находки правил в коде и подтверждённые правилом судья не оценивает.`,
+      "",
+    );
+    if (j.dropped.length)
+      out.push(
+        table(
+          ["Где", "Критерий", "Цитата", "Находка", "Вероятность"],
+          [...j.dropped]
+            .sort((a, b) => a.p - b.p)
+            .map((x) => [
+              x.where,
+              (INDIVIDUAL_INFO[x.criterion as IndividualCriterion] ?? SET_INFO[x.criterion as SetCriterion])?.name ?? x.criterion,
+              q(x.quote),
+              x.problem,
+              x.p.toFixed(2),
+            ]),
+        ),
+        "",
+      );
   }
 
   if (r.minor?.length) {

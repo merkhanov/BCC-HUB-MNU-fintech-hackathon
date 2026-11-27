@@ -5,6 +5,7 @@ import { parseArgs } from "node:util";
 import pkg from "../package.json";
 import { parseAnswers, renderQuestionsFile } from "./answers.ts";
 import { ConfigError, createLLM, errorText, isDailyQuota, isTransient } from "./llm.ts";
+import { createJudge } from "./judge.ts";
 import { InputError, loadDocument, SUPPORTED } from "./load.ts";
 import { assess, type RunResult, runChecks } from "./pipeline.ts";
 import type { Answer } from "./prompts.ts";
@@ -31,7 +32,8 @@ const USAGE = `Агент проверки требований (ISO/IEC/IEEE 29
                      всё равно сохраняются, чтобы прогон можно было продолжить после сбоя.
   -h, --help         Эта справка.
 
-Настройки в .env (см. .env.example): LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL, OPENROUTER_API_KEY, OPENROUTER_MODEL.`;
+Настройки в .env (см. .env.example): LLM_PROVIDER, GEMINI_API_KEY, GEMINI_MODEL, OPENROUTER_API_KEY, OPENROUTER_MODEL.
+Судья находок TypeSafe (необязательно): TYPESAFE_API_KEY, TYPESAFE_MODEL, TYPESAFE_THRESHOLD.`;
 
 const ROOT = resolve(import.meta.dir, "..");
 /** Progress goes to stderr; console.error would colour every line red in a terminal. */
@@ -95,6 +97,7 @@ async function main(): Promise<number> {
   }
   const version = await agentVersion(); // read before the run writes any files
   const llm = createLLM(process.env, { cacheDir: join(ROOT, ".cache", "llm"), readCache: !values["no-cache"], log: say });
+  const judge = createJudge(process.env, { cacheDir: join(ROOT, ".cache", "llm"), readCache: !values["no-cache"], log: say });
   say(`Документ: ${input} (${doc.format}, ${doc.text.length} символов). Модель: ${llm.model}`);
   if (answers.length) say(`Ответы автора: ${answers.length} из ${values.answers}`);
 
@@ -103,7 +106,7 @@ async function main(): Promise<number> {
     const [calls0, cached0] = [llm.calls, llm.cached];
     // The questions file is rewritten below, so keep the author's answers in a copy of their own.
     if (answersFile && resolve(answersFile) !== resolve(answersCopy)) await Bun.write(answersCopy, Bun.file(answersFile));
-    const result = await runChecks(doc, llm, say, given);
+    const result = await runChecks(doc, llm, say, given, judge);
     const passport: Passport = {
       file: input,
       format: doc.format,
@@ -150,6 +153,7 @@ async function main(): Promise<number> {
       rejected: result.rejected.length,
       answeredElsewhere: result.answered.length,
       minor: result.minor.length,
+      judgeDropped: result.judged?.dropped.length ?? null,
       questions: result.questions.map((q) => ({
         id: q.id,
         addressee: q.addressee,

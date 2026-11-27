@@ -1,5 +1,6 @@
 import { CRITICAL_CRITERIA, INDIVIDUAL_INFO, type IndividualCriterion, type SetCriterion } from "./criteria.ts";
 import { Grounder } from "./ground.ts";
+import type { Judge } from "./judge.ts";
 import { errorText, type LLM } from "./llm.ts";
 import { acceptanceRows, type CodeFinding, codeChecks, pairHint, RULE_INFO, relatedPairs } from "./rules.ts";
 import type { Location, SourceDoc } from "./load.ts";
@@ -123,6 +124,16 @@ export interface RunResult {
   answered: Answered[];
   /** Minor remarks: listed in the report, not counted as violations and not asked about. */
   minor: Finding[];
+  /** The TypeSafe judge's verdict, when TYPESAFE_API_KEY is set and the call succeeded. */
+  judged?: Judged;
+}
+
+/** Model findings the judge scored below its threshold. Code findings and rule-confirmed findings are never judged. */
+export interface Judged {
+  model: string;
+  threshold: number;
+  scored: number;
+  dropped: { where: string; criterion: string; quote: string; problem: string; p: number }[];
 }
 
 /**
@@ -197,6 +208,7 @@ export async function runChecks(
   llm: LLM,
   log: (msg: string) => void = () => {},
   answers: Answer[] = [],
+  judge: Judge | null = null,
 ): Promise<RunResult> {
   const grounder = new Grounder(doc);
   const rejected: Rejected[] = [];
@@ -332,6 +344,34 @@ export async function runChecks(
   unnumbered.push(...added.map((c) => toSetFinding(c, requirements)));
   if (added.length) log(`   правила в коде добавили находок: ${added.length}`);
   unnumbered.push(...(await checkPairs(doc, llm, log, grounder, requirements, unnumbered, key, answers)));
+
+  let judged: Judged | undefined;
+  if (judge) {
+    log("   судья находок TypeSafe");
+    const reqItems = findings.filter((f) => !f.confirmedBy);
+    const setItems = unnumbered.filter((f) => f.by === "model" && !f.confirmedBy);
+    const docIdOf = new Map(requirements.map((r) => [r.id, r.docId]));
+    const items = [
+      ...reqItems.map((f, i) => ({ key: `F${i}`, quote: f.quote, text: `${f.problem} ${f.fix}`, f, where: `${reqLabel(f.reqId, docIdOf.get(f.reqId))}` })),
+      ...setItems.map((f, i) => ({ key: `S${i}`, quote: f.places[0]!.quote, text: `${f.problem} ${f.fix}`, f, where: "набор" })),
+    ];
+    const p = await judge.score(doc.text, items);
+    if (p) {
+      const low = new Set(items.filter((it) => (p[it.key] ?? 1) < judge.threshold).map((it) => it.f));
+      judged = {
+        model: judge.model,
+        threshold: judge.threshold,
+        scored: items.length,
+        dropped: items
+          .filter((it) => low.has(it.f))
+          .map((it) => ({ where: it.where, criterion: it.f.criterion, quote: it.quote, problem: it.f.problem, p: p[it.key]! })),
+      };
+      findings.splice(0, findings.length, ...findings.filter((f) => !low.has(f)));
+      unnumbered.splice(0, unnumbered.length, ...unnumbered.filter((f) => !low.has(f)));
+      log(`   судья оценил находок: ${items.length}, снял с вероятностью ниже ${judge.threshold}: ${judged.dropped.length}`);
+    }
+  }
+
   const setFindings: SetFinding[] = unnumbered
     .sort(bySeverity)
     .map((f, i) => ({ id: `Н-${String(i + 1).padStart(2, "0")}`, ...f }));
@@ -351,6 +391,7 @@ export async function runChecks(
     rejected,
     answered,
     minor,
+    judged,
   };
 }
 
