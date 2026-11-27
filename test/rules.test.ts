@@ -192,3 +192,37 @@ test("a withdrawn finding comes back when a rule sees the same defect at the pla
   expect(r.answered).toHaveLength(0);
   expect(r.findings.map((f) => f.confirmedBy)).toEqual(["field-types"]);
 });
+
+test("low, level-of-detail and template remarks become minor unless a rule confirms them", async () => {
+  const { runChecks } = await import("../src/pipeline.ts");
+  const text = "| Поле | Формат |\n| --- | --- |\n| `total` | integer |\n\n| Поле | Тип |\n| --- | --- |\n| total | string |\n\n* Контроллер OrdersController.\n";
+  const f = (criterion: string, severity: string, quote: string, problem: string) => ({ criterion, quote, elsewhere: "", answered: false, severity, problem, fix: "", question: "?" });
+  const llm = {
+    provider: "fake",
+    model: "fake",
+    stepModels: {},
+    calls: 0,
+    cached: 0,
+    async json<T>(step: string): Promise<T> {
+      if (step === "extract")
+        return {
+          title: "t",
+          requirements: [
+            { doc_id: null, section: "API", type: "data", summary: "total", quote: "`total` | integer" },
+            { doc_id: null, section: "API", type: "integration", summary: "c", quote: "Контроллер OrdersController." },
+          ],
+        } as T;
+      if (step.startsWith("check"))
+        return {
+          results: [
+            { req_id: "R1", findings: [f("unambiguous", "low", "`total` | integer", "total integer, а ниже string: типы не совпадают.")] },
+            { req_id: "R2", findings: [f("appropriate", "medium", "Контроллер OrdersController.", "Имя класса лишнее."), f("complete", "medium", "Контроллер OrdersController.", "Нет методов контроллера.")] },
+          ],
+        } as T;
+      return { findings: [], pairs: [], questions: [] } as T;
+    },
+  };
+  const r = await runChecks(doc(text), llm as never);
+  expect(r.minor.map((x) => x.criterion)).toEqual(["appropriate"]);
+  expect(r.findings.map((x) => [x.criterion, x.confirmedBy])).toEqual([["unambiguous", "field-types"], ["complete", undefined]]);
+});

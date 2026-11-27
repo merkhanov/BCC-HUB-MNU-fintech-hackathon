@@ -373,6 +373,27 @@ export function renderReport(r: RunResult, p: Passport): string {
     );
   }
 
+  if (r.minor?.length) {
+    out.push("## Приложение. Мелкие замечания", "");
+    out.push(
+      `Эти находки модели низкой серьёзности или касаются уровня детализации и шаблона (всего: ${r.minor.length}). По разметке наших прогонов такие находки чаще всего придирки, поэтому агент не считает их нарушениями, не учитывает в итоге и не задаёт по ним вопросов. Если правило в коде нашло тот же дефект, находка остаётся в разделе 3.`,
+      "",
+    );
+    out.push(
+      table(
+        ["Требование", "Критерий", "Серьёзность", "Цитата", "Замечание"],
+        r.minor.map((x) => [
+          reqLabel(x.reqId, r.requirements.find((t) => t.id === x.reqId)?.docId),
+          INDIVIDUAL_INFO[x.criterion].name,
+          SEVERITY[x.severity],
+          q(x.quote),
+          x.problem,
+        ]),
+      ),
+      "",
+    );
+  }
+
   if (r.answered?.length) {
     out.push("## Приложение. Находки, на которые документ уже отвечает", "");
     out.push(

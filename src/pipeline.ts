@@ -121,7 +121,16 @@ export interface RunResult {
   rejected: Rejected[];
   /** Withdrawn findings, with the place in the document that answers each. */
   answered: Answered[];
+  /** Minor remarks: listed in the report, not counted as violations and not asked about. */
+  minor: Finding[];
 }
+
+/**
+ * Low-severity findings and remarks on level of detail or template are mostly nitpicks: on three labelled
+ * Flash-Lite runs 9 of 33 low findings and none of 7 «appropriate» findings were real. They become minor remarks
+ * unless a code rule found the same defect.
+ */
+export const isMinor = (f: Finding) => !f.confirmedBy && (f.severity === "low" || f.criterion === "appropriate" || f.criterion === "conforming");
 
 const BATCH_SIZE = 8;
 
@@ -281,7 +290,10 @@ export async function runChecks(
   }
   const withdrawn = staged.filter((s) => s.answer).length;
   if (withdrawn) log(`   сняты как уже отвеченные в документе: ${answered.length}, возвращены правилами: ${withdrawn - answered.length}`);
-  confirm(allCode, findings);
+  confirm(allCode, staged.map((s) => s.finding));
+  const minor = findings.filter(isMinor);
+  findings.splice(0, findings.length, ...findings.filter((f) => !isMinor(f)));
+  if (minor.length) log(`   мелких замечаний вне подсчёта: ${minor.length}`);
   const code = notYetFound(allCode, asModel(findings));
   const setOut = await llm.json(
     "set",
@@ -338,6 +350,7 @@ export async function runChecks(
     answers,
     rejected,
     answered,
+    minor,
   };
 }
 
