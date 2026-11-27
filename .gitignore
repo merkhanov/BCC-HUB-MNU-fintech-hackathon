@@ -52,3 +52,5 @@ Thumbs.db
 
 # Agent answer cache
 .cache/
+
+.omo/
