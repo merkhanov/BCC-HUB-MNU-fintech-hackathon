@@ -1,59 +1,69 @@
 {
- "results": [
-  {
-   "req_id": "R2",
-   "findings": [
+  "results": [
     {
-     "criterion": "verifiable",
-     "severity": "high",
-     "quote": "приходит быстро",
-     "problem": "«Быстро» не задаёт измеримого времени доставки.",
-     "fix": "Указать предел, например 60 секунд от события.",
-     "question": "За какое время от события напоминание должно дойти до клиента?"
+      "req_id": "R2",
+      "findings": [
+        {
+          "criterion": "verifiable",
+          "quote": "приходит быстро",
+          "elsewhere": "",
+          "answered": false,
+          "severity": "high",
+          "problem": "«Быстро» не задаёт измеримого времени доставки.",
+          "fix": "Указать предел, например 60 секунд от события.",
+          "question": "За какое время от события напоминание должно дойти до клиента?"
+        },
+        {
+          "criterion": "unambiguous",
+          "quote": "Напоминание приходит по SMS и push",
+          "elsewhere": "",
+          "answered": false,
+          "severity": "medium",
+          "problem": "Цитаты нет в документе.",
+          "fix": "—",
+          "question": "По каким каналам приходит напоминание?"
+        }
+      ]
     },
     {
-     "criterion": "unambiguous",
-     "severity": "medium",
-     "quote": "Напоминание приходит по SMS и push",
-     "problem": "Цитаты нет в документе.",
-     "fix": "—",
-     "question": "По каким каналам приходит напоминание?"
-    }
-   ]
-  },
-  {
-   "req_id": "R3",
-   "findings": [
-    {
-     "criterion": "verifiable",
-     "severity": "medium",
-     "quote": "Сервис работает надёжно",
-     "problem": "Нет метрики надёжности.",
-     "fix": "Задать доступность, например 99,9 % в месяц.",
-     "question": "Какая доступность сервиса нужна и как её измерять?"
+      "req_id": "R3",
+      "findings": [
+        {
+          "criterion": "verifiable",
+          "quote": "Сервис работает надёжно",
+          "elsewhere": "",
+          "answered": false,
+          "severity": "medium",
+          "problem": "Нет метрики надёжности.",
+          "fix": "Задать доступность, например 99,9 % в месяц.",
+          "question": "Какая доступность сервиса нужна и как её измерять?"
+        },
+        {
+          "criterion": "traceable",
+          "quote": "Сервис работает надёжно",
+          "elsewhere": "",
+          "answered": false,
+          "severity": "low",
+          "problem": "У требования нет идентификатора.",
+          "fix": "Присвоить номер НФ-1.",
+          "question": "Нужен ли требованию собственный номер?"
+        }
+      ]
     },
     {
-     "criterion": "traceable",
-     "severity": "low",
-     "quote": "Сервис работает надёжно",
-     "problem": "У требования нет идентификатора.",
-     "fix": "Присвоить номер НФ-1.",
-     "question": "Нужен ли требованию собственный номер?"
+      "req_id": "R99",
+      "findings": [
+        {
+          "criterion": "necessary",
+          "quote": "Система",
+          "elsewhere": "",
+          "answered": false,
+          "severity": "low",
+          "problem": "Неизвестный ID.",
+          "fix": "—",
+          "question": "—"
+        }
+      ]
     }
-   ]
-  },
-  {
-   "req_id": "R99",
-   "findings": [
-    {
-     "criterion": "necessary",
-     "severity": "low",
-     "quote": "Система",
-     "problem": "Неизвестный ID.",
-     "fix": "—",
-     "question": "—"
-    }
-   ]
-  }
- ]
+  ]
 }

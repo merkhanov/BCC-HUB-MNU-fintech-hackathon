@@ -98,6 +98,16 @@ export interface Rejected {
   problem: string;
 }
 
+/** A step 2 finding the model withdrew because another place in the document already answers it. */
+export interface Answered {
+  reqId: string;
+  criterion: IndividualCriterion;
+  quote: string;
+  problem: string;
+  /** The place that answers it, found in the document by code. */
+  answer: { quote: string; location: Location };
+}
+
 export interface RunResult {
   title: string;
   requirements: Requirement[];
@@ -109,6 +119,8 @@ export interface RunResult {
   questionsFallback: boolean;
   answers: Answer[];
   rejected: Rejected[];
+  /** Withdrawn findings, with the place in the document that answers each. */
+  answered: Answered[];
 }
 
 const BATCH_SIZE = 8;
@@ -179,6 +191,7 @@ export async function runChecks(
 ): Promise<RunResult> {
   const grounder = new Grounder(doc);
   const rejected: Rejected[] = [];
+  const answered: Answered[] = [];
 
   log("1/4 Нарезка требований");
   const extracted = await llm.json("extract", extractPrompt(doc.text), ExtractSchema);
@@ -220,6 +233,13 @@ export async function runChecks(
           rejected.push({ scope: req.id, criterion: f.criterion, quotes: [f.quote], problem: f.problem });
           continue;
         }
+        // The model may withdraw a finding only with a quote code finds elsewhere in the document; without one the
+        // finding stays.
+        const answer = f.answered && f.elsewhere?.trim() ? grounder.find(f.elsewhere) : null;
+        if (answer && !overlaps(answer.location, g.location)) {
+          answered.push({ reqId: req.id, criterion: f.criterion, quote: f.quote, problem: f.problem, answer: { quote: f.elsewhere, location: answer.location } });
+          continue;
+        }
         findings.push({
           reqId: req.id,
           criterion: f.criterion,
@@ -245,6 +265,7 @@ export async function runChecks(
       await assess(`check-${i + 1}-retry`, missing);
     }
   }
+  if (answered.length) log(`   сняты как уже отвеченные в документе: ${answered.length}`);
   const unchecked = requirements.filter((r) => !r.checked);
   if (unchecked.length) log(`   не проверены: ${unchecked.map((r) => r.id).join(", ")}`);
 
@@ -308,6 +329,7 @@ export async function runChecks(
     questionsFallback: fallback,
     answers,
     rejected,
+    answered,
   };
 }
 

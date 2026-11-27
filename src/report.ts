@@ -373,6 +373,27 @@ export function renderReport(r: RunResult, p: Passport): string {
     );
   }
 
+  if (r.answered?.length) {
+    out.push("## Приложение. Находки, на которые документ уже отвечает", "");
+    out.push(
+      `Модель сначала отметила эти места, но нашла в другом разделе документа ответ на свой вопрос (всего: ${r.answered.length}). Агент проверил, что цитата ответа есть в документе, и не включил эти находки в подсчёты и выводы.`,
+      "",
+    );
+    out.push(
+      table(
+        ["Требование", "Критерий", "Цитата", "Находка", "Где документ отвечает"],
+        r.answered.map((x) => [
+          reqLabel(x.reqId, r.requirements.find((t) => t.id === x.reqId)?.docId),
+          INDIVIDUAL_INFO[x.criterion].name,
+          q(x.quote),
+          x.problem,
+          `${q(x.answer.quote)} (${formatLocation(x.answer.location)})`,
+        ]),
+      ),
+      "",
+    );
+  }
+
   if (r.rejected.length) {
     out.push("## Приложение. Отклонённые находки", "");
     out.push(

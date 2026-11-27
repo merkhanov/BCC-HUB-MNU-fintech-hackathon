@@ -138,3 +138,28 @@ test("a model finding a rule confirms gets a question even when the model rated 
   expect(r.setFindings.filter((f) => f.rule === "field-types")).toHaveLength(0);
   expect(r.questions.map((q) => [q.by, q.question])).toContainEqual(["code", "Какой тип у total?"]);
 });
+
+test("step 2 withdraws a finding only with a quote from another place that code finds in the document", async () => {
+  const { runChecks } = await import("../src/pipeline.ts");
+  const text = "* Поле message заполняется при ошибке.\n\n| Поле | Когда |\n| --- | --- |\n| message | При ошибке |\n";
+  const quote = "Поле message заполняется при ошибке.";
+  const f = (elsewhere: string, answered: boolean) => ({ criterion: "complete", quote, elsewhere, answered, severity: "medium", problem: `Не сказано, когда есть message (${elsewhere || "нет"})`, fix: "", question: "Когда?" });
+  const llm = {
+    provider: "fake",
+    model: "fake",
+    stepModels: {},
+    calls: 0,
+    cached: 0,
+    async json<T>(step: string): Promise<T> {
+      if (step === "extract") return { title: "t", requirements: [{ doc_id: null, section: "API", type: "data", summary: "m", quote }] } as T;
+      if (step.startsWith("check"))
+        return { results: [{ req_id: "R1", findings: [f("message При ошибке", true), f("такой строки нет", true), f("", false), f(quote, true)] }] } as T;
+      return { findings: [], pairs: [], questions: [] } as T;
+    },
+  };
+  const r = await runChecks(doc(text), llm as never);
+  expect(r.answered.map((a) => a.answer.quote)).toEqual(["message При ошибке"]);
+  expect(r.answered[0]!.answer.location.line).toBe(5);
+  // An answer quote that is not in the document, no answer, or the finding's own line: the finding stays.
+  expect(r.findings).toHaveLength(3);
+});

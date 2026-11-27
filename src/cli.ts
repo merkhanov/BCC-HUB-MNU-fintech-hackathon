@@ -148,6 +148,7 @@ async function main(): Promise<number> {
       rerun,
       ...assess(result),
       rejected: result.rejected.length,
+      answeredElsewhere: result.answered.length,
       questions: result.questions.map((q) => ({
         id: q.id,
         addressee: q.addressee,
@@ -164,7 +165,7 @@ async function main(): Promise<number> {
 function summary(result: RunResult, output: string) {
   const critical = result.findings.filter((f) => f.critical).length + result.setFindings.filter((f) => f.critical).length;
   say(
-    `Готово: ${output}. Требований: ${result.requirements.length}, нарушений: ${result.findings.length + result.setFindings.length}, критичных: ${critical}, отклонено без цитаты: ${result.rejected.length}, вопросов автору: ${result.questions.length}`,
+    `Готово: ${output}. Требований: ${result.requirements.length}, нарушений: ${result.findings.length + result.setFindings.length}, критичных: ${critical}, отклонено без цитаты: ${result.rejected.length}, снято как уже отвеченное: ${result.answered.length}, вопросов автору: ${result.questions.length}`,
   );
   if (result.questions.length === 0) return;
   say("\nГлавные вопросы к автору документа:");
