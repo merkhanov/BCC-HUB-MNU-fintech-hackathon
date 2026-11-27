@@ -524,20 +524,23 @@ async function askQuestions(
   };
   /**
    * Every critical finding, every code finding and every finding a code rule confirmed gets a question. The ones no model question cites are asked by
-   * code, one question per requirement or per rule, after the model's questions.
+   * code, one question per requirement or per rule (findings a rule confirmed group under that rule), after the model's
+   * questions.
    */
   const coverRest = (asked: Omit<Question, "id">[]): Omit<Question, "id">[] => {
     const cited = new Set(asked.flatMap((q) => q.sources));
     const groups = new Map<string, AnyFinding[]>();
     for (const f of all) {
       if (!(f.critical || f.confirmedBy || (f.kind === "set" && f.by === "code")) || cited.has(label(f)) || !f.question.trim()) continue;
-      const k = f.kind === "req" ? `req:${f.reqId}` : f.rule ? `rule:${f.rule}` : `set:${f.id}`;
+      const rule = f.kind === "set" ? (f.rule ?? f.confirmedBy) : f.confirmedBy;
+      const k = rule ? `rule:${rule}` : f.kind === "req" ? `req:${f.reqId}` : `set:${f.id}`;
       groups.set(k, [...(groups.get(k) ?? []), f]);
     }
     const extra = [...groups.values()].map((g) => {
       const sorted = [...g].sort(bySeverity);
       const top = sorted[0]!;
-      const merged = g.length > 1 && top.kind === "set" && top.rule ? RULE_INFO[top.rule]?.groupQuestion : undefined;
+      const rule = top.kind === "set" ? (top.rule ?? top.confirmedBy) : top.confirmedBy;
+      const merged = g.length > 1 && rule ? RULE_INFO[rule]?.groupQuestion : undefined;
       return build({ addressee: addresseeFor(top), question: merged ?? top.question, why: top.problem, options: [] }, sorted, "code");
     });
     return uniqueBy(extra.sort(order), (q) => q.question.trim().toLowerCase());
